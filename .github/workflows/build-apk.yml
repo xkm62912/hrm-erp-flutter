@@ -1,0 +1,164 @@
+name: 🚀 Build Flutter APK
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:   # allows manual trigger from GitHub UI
+
+jobs:
+  build-apk:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout code ──────────────────────────────────────
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Setup Java (required for Android build) ────────────
+      - name: ☕ Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # ── 3. Setup Flutter ──────────────────────────────────────
+      - name: 🐦 Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: 'stable'
+          cache: true
+
+      # ── 4. Verify Flutter install ─────────────────────────────
+      - name: ✅ Flutter version
+        run: flutter --version
+
+      # ── 5. Create missing Android project files ───────────────
+      - name: 🤖 Create Android project
+        run: |
+          flutter create --project-name hrm_erp --org com.hrmerp . --platforms android
+          echo "Android project created"
+
+      # ── 6. Update AndroidManifest with app name & permissions ──
+      - name: 📝 Configure AndroidManifest
+        run: |
+          cat > android/app/src/main/AndroidManifest.xml << 'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET"/>
+              <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
+              <uses-permission android:name="android.permission.USE_FINGERPRINT"/>
+              <uses-permission android:name="android.permission.CAMERA"/>
+              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+              <application
+                  android:label="HRM ERP"
+                  android:name="${applicationName}"
+                  android:icon="@mipmap/ic_launcher"
+                  android:usesCleartextTraffic="true">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:launchMode="singleTop"
+                      android:taskAffinity=""
+                      android:theme="@style/LaunchTheme"
+                      android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+                      android:hardwareAccelerated="true"
+                      android:windowSoftInputMode="adjustResize">
+                      <meta-data
+                        android:name="io.flutter.embedding.android.NormalTheme"
+                        android:resource="@style/NormalTheme"/>
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+                  <meta-data
+                      android:name="flutterEmbedding"
+                      android:value="2"/>
+              </application>
+          </manifest>
+          EOF
+
+      # ── 7. Set minimum SDK version ────────────────────────────
+      - name: 🔧 Configure build.gradle
+        run: |
+          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/' android/app/build.gradle
+          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/' android/app/build.gradle
+          cat android/app/build.gradle | grep -A2 "defaultConfig"
+
+      # ── 8. Install dependencies ───────────────────────────────
+      - name: 📦 Flutter pub get
+        run: flutter pub get
+
+      # ── 9. Generate code (Riverpod + Freezed) ─────────────────
+      - name: ⚙️ Run build_runner
+        run: dart run build_runner build --delete-conflicting-outputs
+        continue-on-error: true
+
+      # ── 10. Analyze code ──────────────────────────────────────
+      - name: 🔍 Flutter analyze
+        run: flutter analyze --no-fatal-infos
+        continue-on-error: true
+
+      # ── 11. Build APK ─────────────────────────────────────────
+      - name: 🏗️ Build APK (release)
+        run: |
+          flutter build apk --release \
+            --no-shrink \
+            --dart-define=SUPABASE_URL=https://iuuzzlcyaduhmhkfecgp.supabase.co \
+            --dart-define=SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml1dXp6bGN5YWR1aG1oa2ZlY2dwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIzNjMxNjYsImV4cCI6MjA5NzkzOTE2Nn0.vKCOwTXe5m36Zs6hCVbDQeqecYvml8hiaAM0irudgtA
+
+      # ── 12. Rename APK with version & date ───────────────────
+      - name: 📛 Rename APK
+        run: |
+          mkdir -p output
+          cp build/app/outputs/flutter-apk/app-release.apk \
+             output/hrm-erp-v1.0-$(date +%Y%m%d).apk
+          ls -lh output/
+
+      # ── 13. Upload APK as artifact ────────────────────────────
+      - name: 📤 Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HRM-ERP-APK
+          path: output/*.apk
+          retention-days: 30
+
+      # ── 14. Create GitHub Release with APK ───────────────────
+      - name: 🎉 Create GitHub Release
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: "HRM ERP v1.0.${{ github.run_number }}"
+          body: |
+            ## 📱 HRM ERP Android App
+
+            ### ✅ What's included
+            - Employee Management (CRUD, search, profiles)
+            - Attendance tracking (clock-in/out, calendar)
+            - Leave management (apply + approval workflow)
+            - Payroll engine (monthly run + PDF payslips)
+            - CRM (leads pipeline, clients)
+            - Dashboard (KPI cards + charts)
+
+            ### 📲 How to install
+            1. Download `hrm-erp-*.apk` below
+            2. On your Android phone: **Settings → Security → Allow unknown sources**
+            3. Open the downloaded APK and tap **Install**
+            4. Login with your Supabase credentials
+
+            ### 🔗 Backend
+            - Supabase project: `iuuzzlcyaduhmhkfecgp`
+            - 16 tables, RLS policies, live data
+
+            ---
+            Built automatically by GitHub Actions 🤖
+          files: output/*.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
