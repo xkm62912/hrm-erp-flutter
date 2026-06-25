@@ -5,32 +5,31 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
-env:
-  SUPABASE_URL: "https://iuuzzlcyaduhmhkfecgp.supabase.co"
-  SUPABASE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml1dXp6bGN5YWR1aG1oa2ZlY2dwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIzNjMxNjYsImV4cCI6MjA5NzkzOTE2Nn0.vKCOwTXe5m36Zs6hCVbDQeqecYvml8hiaAM0irudgtA"
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Java
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Flutter
+      - name: Setup Flutter 3.24.0
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.24.0'
           channel: stable
           cache: true
 
-      - name: Bootstrap Android project
+      - name: Create Flutter Android project scaffold
         run: |
           cp -r lib /tmp/src_lib
           cp pubspec.yaml /tmp/src_pubspec.yaml
@@ -39,26 +38,25 @@ jobs:
           cp -r /tmp/src_lib lib
           cp /tmp/src_pubspec.yaml pubspec.yaml
 
-      - name: Set minSdkVersion to 21
+      - name: Set minSdk to 21
         run: |
           for f in android/app/build.gradle android/app/build.gradle.kts; do
             if [ -f "$f" ]; then
               sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' "$f"
               sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' "$f"
-              echo "--- $f ---"
-              cat "$f" | grep -i minsdk || true
             fi
           done
 
       - name: Add INTERNET permission
         run: |
-          M="android/app/src/main/AndroidManifest.xml"
-          grep -q "INTERNET" "$M" || sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <application|' "$M"
+          M=android/app/src/main/AndroidManifest.xml
+          grep -q "INTERNET" "$M" || \
+            sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <application|' "$M"
 
       - name: pub get
         run: flutter pub get
 
-      - name: Build runner
+      - name: Code generation
         run: dart run build_runner build --delete-conflicting-outputs
         continue-on-error: true
 
@@ -66,31 +64,29 @@ jobs:
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
         continue-on-error: true
 
-      - name: Build APK
+      - name: Build release APK
         run: |
           flutter build apk --release \
-            --dart-define=SUPABASE_URL=${{ env.SUPABASE_URL }} \
-            --dart-define=SUPABASE_ANON_KEY=${{ env.SUPABASE_KEY }}
+            "--dart-define=SUPABASE_URL=https://iuuzzlcyaduhmhkfecgp.supabase.co" \
+            "--dart-define=SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml1dXp6bGN5YWR1aG1oa2ZlY2dwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIzNjMxNjYsImV4cCI6MjA5NzkzOTE2Nn0.vKCOwTXe5m36Zs6hCVbDQeqecYvml8hiaAM0irudgtA"
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: HRM-ERP-APK
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 30
 
-      - name: Release
-        if: github.ref == 'refs/heads/main'
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.${{ github.run_number }}
           name: HRM ERP v1.0.${{ github.run_number }}
           body: |
             ## Install on Android
-
-            1. Download `app-release.apk` below
-            2. Phone Settings → Security → Unknown sources → Allow
-            3. Open APK → Install
+            1. Download app-release.apk below
+            2. Settings > Security > Allow unknown sources
+            3. Open APK > Install
             4. Login with your Supabase email & password
           files: build/app/outputs/flutter-apk/app-release.apk
         env:
