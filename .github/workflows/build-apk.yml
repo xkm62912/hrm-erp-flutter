@@ -7,13 +7,15 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Java 17
@@ -22,14 +24,14 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Flutter 3.24.0
+      - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.24.0'
           channel: stable
           cache: true
 
-      - name: Create Flutter Android project scaffold
+      - name: Bootstrap Android scaffold
         run: |
           cp -r lib /tmp/src_lib
           cp pubspec.yaml /tmp/src_pubspec.yaml
@@ -38,20 +40,19 @@ jobs:
           cp -r /tmp/src_lib lib
           cp /tmp/src_pubspec.yaml pubspec.yaml
 
-      - name: Set minSdk to 21
+      - name: Set minSdk 21
         run: |
           for f in android/app/build.gradle android/app/build.gradle.kts; do
-            if [ -f "$f" ]; then
-              sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' "$f"
-              sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' "$f"
-            fi
+            [ -f "$f" ] && sed -i \
+              -e 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' \
+              -e 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' "$f"
           done
 
       - name: Add INTERNET permission
         run: |
           M=android/app/src/main/AndroidManifest.xml
-          grep -q "INTERNET" "$M" || \
-            sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <application|' "$M"
+          grep -q "INTERNET" "$M" || sed -i \
+            's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <application|' "$M"
 
       - name: pub get
         run: flutter pub get
@@ -64,13 +65,13 @@ jobs:
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
         continue-on-error: true
 
-      - name: Build release APK
+      - name: Build APK
         run: |
           flutter build apk --release \
             "--dart-define=SUPABASE_URL=https://iuuzzlcyaduhmhkfecgp.supabase.co" \
             "--dart-define=SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml1dXp6bGN5YWR1aG1oa2ZlY2dwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIzNjMxNjYsImV4cCI6MjA5NzkzOTE2Nn0.vKCOwTXe5m36Zs6hCVbDQeqecYvml8hiaAM0irudgtA"
 
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: HRM-ERP-APK
@@ -84,8 +85,8 @@ jobs:
           name: HRM ERP v1.0.${{ github.run_number }}
           body: |
             ## Install on Android
-            1. Download app-release.apk below
-            2. Settings > Security > Allow unknown sources
+            1. Download `app-release.apk` below
+            2. Phone: Settings > Security > Unknown sources > Allow
             3. Open APK > Install
             4. Login with your Supabase email & password
           files: build/app/outputs/flutter-apk/app-release.apk
