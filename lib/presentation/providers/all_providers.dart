@@ -1,44 +1,42 @@
 // lib/presentation/providers/all_providers.dart
-// Central barrel file — all Riverpod providers for the HRM ERP
+// Plain Riverpod providers — no code generation required
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-part 'all_providers.g.dart';
-
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
 // CORE
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
 
 final supabaseClientProvider = Provider<SupabaseClient>(
   (_) => Supabase.instance.client,
 );
 
-// ═══════════════════════════════════════════════════════════════
-// AUTH PROVIDER
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
+// AUTH
+// ════════════════════════════════════════════════════════════
 
-@riverpod
-Stream<AuthState> authState(AuthStateRef ref) {
-  return Supabase.instance.client.auth.onAuthStateChange;
-}
+final authStateProvider = StreamProvider<AuthState>(
+  (ref) => Supabase.instance.client.auth.onAuthStateChange,
+);
 
-@riverpod
-class AuthNotifier extends _$AuthNotifier {
-  @override
-  AsyncValue<User?> build() {
-    final user = Supabase.instance.client.auth.currentUser;
-    return AsyncValue.data(user);
-  }
+final authNotifierProvider =
+    StateNotifierProvider<AuthNotifier, AsyncValue<User?>>(
+  (ref) => AuthNotifier(),
+);
+
+class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
+  AuthNotifier()
+      : super(AsyncValue.data(Supabase.instance.client.auth.currentUser));
+
+  SupabaseClient get _client => Supabase.instance.client;
 
   Future<void> signIn(String email, String password) async {
     state = const AsyncValue.loading();
     try {
-      final res = await Supabase.instance.client.auth.signInWithPassword(
-        email: email,
-        password: password,
-      );
+      final res = await _client.auth
+          .signInWithPassword(email: email, password: password);
       state = AsyncValue.data(res.user);
     } catch (e, st) {
       state = AsyncValue.error(e, st);
@@ -46,14 +44,14 @@ class AuthNotifier extends _$AuthNotifier {
   }
 
   Future<void> signOut() async {
-    await Supabase.instance.client.auth.signOut();
+    await _client.auth.signOut();
     state = const AsyncValue.data(null);
   }
 
   Future<String?> getUserRole() async {
-    final uid = Supabase.instance.client.auth.currentUser?.id;
+    final uid = _client.auth.currentUser?.id;
     if (uid == null) return null;
-    final res = await Supabase.instance.client
+    final res = await _client
         .from('user_roles')
         .select('role')
         .eq('user_id', uid)
@@ -63,46 +61,283 @@ class AuthNotifier extends _$AuthNotifier {
 }
 
 final userRoleProvider = FutureProvider<String?>((ref) async {
-  final notifier = ref.read(authNotifierProvider.notifier);
-  return notifier.getUserRole();
+  return ref.read(authNotifierProvider.notifier).getUserRole();
 });
 
-// ═══════════════════════════════════════════════════════════════
-// EMPLOYEE PROVIDERS
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
+// ROUTER
+// ════════════════════════════════════════════════════════════
 
-@riverpod
-Future<List<Map<String, dynamic>>> employees(
-  EmployeesRef ref, {
-  String search = '',
-  String? departmentId,
-  String? status,
-}) async {
+final appRouterProvider = Provider<GoRouter>((ref) {
+  final authState = ref.watch(authStateProvider);
+  return GoRouter(
+    initialLocation: '/splash',
+    redirect: (context, state) {
+      final isAuthenticated = authState.valueOrNull?.session != null ||
+          Supabase.instance.client.auth.currentSession != null;
+      final loc = state.matchedLocation;
+      if (loc == '/splash') return null;
+      if (!isAuthenticated && loc != '/login') return '/login';
+      if (isAuthenticated && loc == '/login') return '/dashboard';
+      return null;
+    },
+    routes: _buildRoutes(),
+    errorBuilder: (ctx, state) => _ErrorPage(uri: state.uri.toString()),
+  );
+});
+
+List<RouteBase> _buildRoutes() {
+  return [
+    GoRoute(path: '/splash', builder: (_, __) => const _SplashRedirect()),
+    GoRoute(
+        path: '/login',
+        builder: (_, __) {
+          // Lazy import to avoid circular
+          return const _LoginPlaceholder();
+        }),
+    ShellRoute(
+      builder: (_, __, child) => _MainShellWrapper(child: child),
+      routes: [
+        GoRoute(path: '/dashboard', builder: (_, __) => const _DashPlaceholder()),
+        GoRoute(
+          path: '/employees',
+          builder: (_, __) => const _EmpListPlaceholder(),
+          routes: [
+            GoRoute(path: 'add', builder: (_, __) => const _EmpFormPlaceholder()),
+            GoRoute(
+              path: ':id',
+              builder: (_, state) =>
+                  _EmpDetailPlaceholder(id: state.pathParameters['id']!),
+              routes: [
+                GoRoute(
+                  path: 'edit',
+                  builder: (_, state) => _EmpFormPlaceholder(
+                      employeeId: state.pathParameters['id']),
+                ),
+              ],
+            ),
+          ],
+        ),
+        GoRoute(path: '/attendance', builder: (_, __) => const _AttPlaceholder()),
+        GoRoute(
+          path: '/leave',
+          builder: (_, __) => const _LeaveListPlaceholder(),
+          routes: [
+            GoRoute(path: 'request', builder: (_, __) => const _LeaveReqPlaceholder()),
+            GoRoute(path: 'approval', builder: (_, __) => const _LeaveAppPlaceholder()),
+          ],
+        ),
+        GoRoute(
+          path: '/payroll',
+          builder: (_, __) => const _PayrollListPlaceholder(),
+          routes: [
+            GoRoute(path: 'run', builder: (_, __) => const _PayrollRunPlaceholder()),
+            GoRoute(
+                path: 'payslip/:id',
+                builder: (_, state) =>
+                    _PayslipPlaceholder(id: state.pathParameters['id']!)),
+          ],
+        ),
+        GoRoute(
+          path: '/crm',
+          builder: (_, __) => const _CrmDashPlaceholder(),
+          routes: [
+            GoRoute(
+              path: 'leads',
+              builder: (_, __) => const _LeadListPlaceholder(),
+              routes: [
+                GoRoute(path: 'add', builder: (_, __) => const _LeadFormPlaceholder()),
+                GoRoute(
+                    path: ':id/edit',
+                    builder: (_, state) =>
+                        _LeadFormPlaceholder(leadId: state.pathParameters['id'])),
+              ],
+            ),
+            GoRoute(path: 'clients', builder: (_, __) => const _ClientListPlaceholder()),
+          ],
+        ),
+      ],
+    ),
+  ];
+}
+
+// Placeholder widgets that import the real screens
+import 'package:flutter/material.dart';
+import '../modules/auth/splash_screen.dart';
+import '../modules/auth/login_screen.dart';
+import '../modules/dashboard/dashboard_screen.dart';
+import '../modules/employees/employee_screens.dart';
+import '../modules/attendance/attendance_screen.dart';
+import '../modules/leave/leave_screens.dart';
+import '../modules/payroll/payroll_screens.dart';
+import '../modules/crm/crm_screens.dart';
+import '../shared/widgets/main_shell.dart';
+
+class _SplashRedirect extends StatelessWidget {
+  const _SplashRedirect();
+  @override
+  Widget build(BuildContext context) => const SplashScreen();
+}
+
+class _LoginPlaceholder extends StatelessWidget {
+  const _LoginPlaceholder();
+  @override
+  Widget build(BuildContext context) => const LoginScreen();
+}
+
+class _MainShellWrapper extends StatelessWidget {
+  final Widget child;
+  const _MainShellWrapper({required this.child});
+  @override
+  Widget build(BuildContext context) => MainShell(child: child);
+}
+
+class _DashPlaceholder extends StatelessWidget {
+  const _DashPlaceholder();
+  @override
+  Widget build(BuildContext context) => const DashboardScreen();
+}
+
+class _EmpListPlaceholder extends StatelessWidget {
+  const _EmpListPlaceholder();
+  @override
+  Widget build(BuildContext context) => const EmployeeListScreen();
+}
+
+class _EmpDetailPlaceholder extends StatelessWidget {
+  final String id;
+  const _EmpDetailPlaceholder({required this.id});
+  @override
+  Widget build(BuildContext context) => EmployeeDetailScreen(id: id);
+}
+
+class _EmpFormPlaceholder extends StatelessWidget {
+  final String? employeeId;
+  const _EmpFormPlaceholder({this.employeeId});
+  @override
+  Widget build(BuildContext context) => EmployeeFormScreen(employeeId: employeeId);
+}
+
+class _AttPlaceholder extends StatelessWidget {
+  const _AttPlaceholder();
+  @override
+  Widget build(BuildContext context) => const AttendanceScreen();
+}
+
+class _LeaveListPlaceholder extends StatelessWidget {
+  const _LeaveListPlaceholder();
+  @override
+  Widget build(BuildContext context) => const LeaveListScreen();
+}
+
+class _LeaveReqPlaceholder extends StatelessWidget {
+  const _LeaveReqPlaceholder();
+  @override
+  Widget build(BuildContext context) => const LeaveRequestScreen();
+}
+
+class _LeaveAppPlaceholder extends StatelessWidget {
+  const _LeaveAppPlaceholder();
+  @override
+  Widget build(BuildContext context) => const LeaveApprovalScreen();
+}
+
+class _PayrollListPlaceholder extends StatelessWidget {
+  const _PayrollListPlaceholder();
+  @override
+  Widget build(BuildContext context) => const PayrollListScreen();
+}
+
+class _PayrollRunPlaceholder extends StatelessWidget {
+  const _PayrollRunPlaceholder();
+  @override
+  Widget build(BuildContext context) => const PayrollRunScreen();
+}
+
+class _PayslipPlaceholder extends StatelessWidget {
+  final String id;
+  const _PayslipPlaceholder({required this.id});
+  @override
+  Widget build(BuildContext context) => PayslipDetailScreen(payslipId: id);
+}
+
+class _CrmDashPlaceholder extends StatelessWidget {
+  const _CrmDashPlaceholder();
+  @override
+  Widget build(BuildContext context) => const CrmDashboardScreen();
+}
+
+class _LeadListPlaceholder extends StatelessWidget {
+  const _LeadListPlaceholder();
+  @override
+  Widget build(BuildContext context) => const LeadListScreen();
+}
+
+class _LeadFormPlaceholder extends StatelessWidget {
+  final String? leadId;
+  const _LeadFormPlaceholder({this.leadId});
+  @override
+  Widget build(BuildContext context) => LeadFormScreen(leadId: leadId);
+}
+
+class _ClientListPlaceholder extends StatelessWidget {
+  const _ClientListPlaceholder();
+  @override
+  Widget build(BuildContext context) => const ClientListScreen();
+}
+
+class _ErrorPage extends StatelessWidget {
+  final String uri;
+  const _ErrorPage({required this.uri});
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        body: Center(
+          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            const Icon(Icons.error_outline, size: 64, color: Colors.red),
+            const SizedBox(height: 16),
+            Text('Page not found: $uri'),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: () => context.go('/dashboard'),
+              child: const Text('Go Home'),
+            ),
+          ]),
+        ),
+      );
+}
+
+// ════════════════════════════════════════════════════════════
+// EMPLOYEE PROVIDERS
+// ════════════════════════════════════════════════════════════
+
+final employeesProvider = FutureProvider.family<List<Map<String, dynamic>>,
+    ({String search, String? status, String? departmentId})>((ref, params) async {
   final client = ref.watch(supabaseClientProvider);
   var query = client
       .from('employees')
       .select('*, departments(name)')
       .order('first_name');
-
-  if (status != null && status.isNotEmpty) {
-    query = query.eq('status', status) as dynamic;
+  if (params.status != null && params.status!.isNotEmpty) {
+    query = query.eq('status', params.status!) as dynamic;
   }
-  if (departmentId != null) {
-    query = query.eq('department_id', departmentId) as dynamic;
+  if (params.departmentId != null) {
+    query = query.eq('department_id', params.departmentId!) as dynamic;
   }
-  if (search.isNotEmpty) {
+  if (params.search.isNotEmpty) {
     query = query.or(
-      'first_name.ilike.%$search%,last_name.ilike.%$search%,emp_code.ilike.%$search%,email.ilike.%$search%',
+      'first_name.ilike.%${params.search}%,last_name.ilike.%${params.search}%,emp_code.ilike.%${params.search}%',
     ) as dynamic;
   }
+  return List<Map<String, dynamic>>.from(await query as List);
+});
 
-  final data = await query;
-  return List<Map<String, dynamic>>.from(data as List);
-}
+// Convenience overloads
+final employeesProviderDefault = FutureProvider<List<Map<String, dynamic>>>((ref) async {
+  return ref.watch(employeesProvider((search: '', status: null, departmentId: null)).future);
+});
 
-@riverpod
-Future<Map<String, dynamic>> employeeDetail(
-    EmployeeDetailRef ref, String id) async {
+final employeeDetailProvider =
+    FutureProvider.family<Map<String, dynamic>, String>((ref, id) async {
   final client = ref.watch(supabaseClientProvider);
   final data = await client
       .from('employees')
@@ -110,50 +345,48 @@ Future<Map<String, dynamic>> employeeDetail(
       .eq('id', id)
       .single();
   return Map<String, dynamic>.from(data);
-}
+});
 
-@riverpod
-Future<Map<String, int>> employeeStats(EmployeeStatsRef ref) async {
+final employeeStatsProvider =
+    FutureProvider<Map<String, int>>((ref) async {
   final client = ref.watch(supabaseClientProvider);
-  final allEmps = await client.from('employees').select('status, join_date');
-  final list = List<Map<String, dynamic>>.from(allEmps as List);
-  final thirtyDaysAgo = DateTime.now().subtract(const Duration(days: 30));
+  final all = await client.from('employees').select('status, join_date');
+  final list = List<Map<String, dynamic>>.from(all as List);
+  final cutoff = DateTime.now().subtract(const Duration(days: 30));
   return {
     'total': list.length,
     'active': list.where((e) => e['status'] == 'active').length,
     'inactive': list.where((e) => e['status'] == 'inactive').length,
     'on_leave': list.where((e) => e['status'] == 'on_leave').length,
     'new': list.where((e) {
-      final joinDate = DateTime.tryParse(e['join_date'] ?? '');
-      return joinDate != null && joinDate.isAfter(thirtyDaysAgo);
+      final d = DateTime.tryParse(e['join_date'] ?? '');
+      return d != null && d.isAfter(cutoff);
     }).length,
   };
-}
+});
 
-@riverpod
-Future<List<Map<String, dynamic>>> departments(DepartmentsRef ref) async {
+final departmentsProvider =
+    FutureProvider<List<Map<String, dynamic>>>((ref) async {
   final client = ref.watch(supabaseClientProvider);
-  final data = await client.from('departments').select().order('name');
-  return List<Map<String, dynamic>>.from(data as List);
-}
+  return List<Map<String, dynamic>>.from(
+      await client.from('departments').select().order('name') as List);
+});
 
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
 // ATTENDANCE PROVIDERS
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
 
-@riverpod
-Future<Map<String, dynamic>?> todayAttendance(TodayAttendanceRef ref) async {
+final todayAttendanceProvider =
+    FutureProvider<Map<String, dynamic>?>((ref) async {
   final client = ref.watch(supabaseClientProvider);
   final user = client.auth.currentUser;
   if (user == null) return null;
-
   final emp = await client
       .from('employees')
       .select('id')
       .eq('user_id', user.id)
       .maybeSingle();
   if (emp == null) return null;
-
   final today = DateTime.now().toIso8601String().substring(0, 10);
   final data = await client
       .from('attendance')
@@ -161,20 +394,14 @@ Future<Map<String, dynamic>?> todayAttendance(TodayAttendanceRef ref) async {
       .eq('employee_id', emp['id'])
       .eq('date', today)
       .maybeSingle();
-
   return data != null ? Map<String, dynamic>.from(data) : null;
-}
+});
 
-@riverpod
-Future<List<Map<String, dynamic>>> monthlyAttendance(
-  MonthlyAttendanceRef ref, {
-  required int month,
-  required int year,
-  String? employeeId,
-}) async {
+final monthlyAttendanceProvider = FutureProvider.family<
+    List<Map<String, dynamic>>,
+    ({int month, int year, String? employeeId})>((ref, p) async {
   final client = ref.watch(supabaseClientProvider);
-  String? empId = employeeId;
-
+  String? empId = p.employeeId;
   if (empId == null) {
     final user = client.auth.currentUser;
     if (user == null) return [];
@@ -186,50 +413,47 @@ Future<List<Map<String, dynamic>>> monthlyAttendance(
     empId = emp?['id'] as String?;
     if (empId == null) return [];
   }
-
-  final start = '$year-${month.toString().padLeft(2, '0')}-01';
-  final end = DateTime(year, month + 1, 0);
-  final endStr =
-      '$year-${month.toString().padLeft(2, '0')}-${end.day.toString().padLeft(2, '0')}';
-
+  final start =
+      '${p.year}-${p.month.toString().padLeft(2, '0')}-01';
+  final lastDay = DateTime(p.year, p.month + 1, 0).day;
+  final end =
+      '${p.year}-${p.month.toString().padLeft(2, '0')}-${lastDay.toString().padLeft(2, '0')}';
   final data = await client
       .from('attendance')
       .select()
       .eq('employee_id', empId)
       .gte('date', start)
-      .lte('date', endStr)
+      .lte('date', end)
       .order('date');
-
   return List<Map<String, dynamic>>.from(data as List);
-}
+});
 
-@riverpod
-class AttendanceAction extends _$AttendanceAction {
-  @override
-  AsyncValue<void> build() => const AsyncValue.data(null);
+final attendanceActionProvider =
+    StateNotifierProvider<AttendanceActionNotifier, AsyncValue<void>>(
+  (_) => AttendanceActionNotifier(),
+);
+
+class AttendanceActionNotifier extends StateNotifier<AsyncValue<void>> {
+  AttendanceActionNotifier() : super(const AsyncValue.data(null));
+
+  SupabaseClient get _c => Supabase.instance.client;
 
   Future<void> checkIn() async {
     state = const AsyncValue.loading();
     try {
-      final client = Supabase.instance.client;
-      final emp = await client
+      final emp = await _c
           .from('employees')
           .select('id')
-          .eq('user_id', client.auth.currentUser!.id)
+          .eq('user_id', _c.auth.currentUser!.id)
           .single();
-
       final now = DateTime.now();
-      final today = now.toIso8601String().substring(0, 10);
       final isLate = now.hour > 9 || (now.hour == 9 && now.minute > 0);
-
-      await client.from('attendance').upsert({
+      await _c.from('attendance').upsert({
         'employee_id': emp['id'],
-        'date': today,
+        'date': now.toIso8601String().substring(0, 10),
         'check_in': now.toIso8601String(),
         'status': isLate ? 'late' : 'present',
       });
-
-      ref.invalidate(todayAttendanceProvider);
       state = const AsyncValue.data(null);
     } catch (e, st) {
       state = AsyncValue.error(e, st);
@@ -239,19 +463,15 @@ class AttendanceAction extends _$AttendanceAction {
   Future<void> checkOut() async {
     state = const AsyncValue.loading();
     try {
-      final client = Supabase.instance.client;
-      final emp = await client
+      final emp = await _c
           .from('employees')
           .select('id')
-          .eq('user_id', client.auth.currentUser!.id)
+          .eq('user_id', _c.auth.currentUser!.id)
           .single();
-
       final today = DateTime.now().toIso8601String().substring(0, 10);
-      await client.from('attendance').update({
+      await _c.from('attendance').update({
         'check_out': DateTime.now().toIso8601String(),
       }).eq('employee_id', emp['id']).eq('date', today);
-
-      ref.invalidate(todayAttendanceProvider);
       state = const AsyncValue.data(null);
     } catch (e, st) {
       state = AsyncValue.error(e, st);
@@ -259,76 +479,65 @@ class AttendanceAction extends _$AttendanceAction {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
 // LEAVE PROVIDERS
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
 
-@riverpod
-Future<List<Map<String, dynamic>>> leaveTypes(LeaveTypesRef ref) async {
+final leaveTypesProvider =
+    FutureProvider<List<Map<String, dynamic>>>((ref) async {
   final client = ref.watch(supabaseClientProvider);
-  final data = await client
-      .from('leave_types')
-      .select()
-      .eq('is_active', true)
-      .order('name');
-  return List<Map<String, dynamic>>.from(data as List);
-}
+  return List<Map<String, dynamic>>.from(
+      await client.from('leave_types').select().eq('is_active', true).order('name') as List);
+});
 
-@riverpod
-Future<List<Map<String, dynamic>>> myLeaveRequests(
-    MyLeaveRequestsRef ref) async {
+final myLeaveRequestsProvider =
+    FutureProvider<List<Map<String, dynamic>>>((ref) async {
   final client = ref.watch(supabaseClientProvider);
   final emp = await client
       .from('employees')
       .select('id')
       .eq('user_id', client.auth.currentUser!.id)
       .single();
-
-  final data = await client
+  return List<Map<String, dynamic>>.from(await client
       .from('leave_requests')
-      .select('*, leave_types(name, is_paid), employees!approved_by(first_name, last_name)')
+      .select('*, leave_types(name, is_paid)')
       .eq('employee_id', emp['id'])
-      .order('applied_at', ascending: false);
+      .order('applied_at', ascending: false) as List);
+});
 
-  return List<Map<String, dynamic>>.from(data as List);
-}
-
-@riverpod
-Future<List<Map<String, dynamic>>> pendingLeaveApprovals(
-    PendingLeaveApprovalsRef ref) async {
+final pendingLeaveApprovalsProvider =
+    FutureProvider<List<Map<String, dynamic>>>((ref) async {
   final client = ref.watch(supabaseClientProvider);
-  final data = await client
+  return List<Map<String, dynamic>>.from(await client
       .from('leave_requests')
-      .select('*, leave_types(name), employees!employee_id(first_name, last_name, avatar_url, designation)')
+      .select('*, leave_types(name), employees!employee_id(first_name, last_name, designation)')
       .eq('status', 'pending')
-      .order('applied_at');
-  return List<Map<String, dynamic>>.from(data as List);
-}
+      .order('applied_at') as List);
+});
 
-@riverpod
-Future<List<Map<String, dynamic>>> myLeaveBalances(
-    MyLeaveBalancesRef ref) async {
+final myLeaveBalancesProvider =
+    FutureProvider<List<Map<String, dynamic>>>((ref) async {
   final client = ref.watch(supabaseClientProvider);
   final emp = await client
       .from('employees')
       .select('id')
       .eq('user_id', client.auth.currentUser!.id)
       .single();
-
-  final year = DateTime.now().year;
-  final data = await client
+  return List<Map<String, dynamic>>.from(await client
       .from('leave_balances')
       .select('*, leave_types(name, max_days_per_year)')
       .eq('employee_id', emp['id'])
-      .eq('year', year);
+      .eq('year', DateTime.now().year) as List);
+});
 
-  return List<Map<String, dynamic>>.from(data as List);
-}
+final leaveRequestNotifierProvider =
+    StateNotifierProvider<LeaveRequestNotifier, AsyncValue<void>>(
+  (_) => LeaveRequestNotifier(),
+);
 
-@riverpod
-class LeaveRequestNotifier extends _$LeaveRequestNotifier {
-  @override
-  AsyncValue<void> build() => const AsyncValue.data(null);
+class LeaveRequestNotifier extends StateNotifier<AsyncValue<void>> {
+  LeaveRequestNotifier() : super(const AsyncValue.data(null));
+  SupabaseClient get _c => Supabase.instance.client;
 
   Future<bool> submitRequest({
     required String leaveTypeId,
@@ -338,16 +547,13 @@ class LeaveRequestNotifier extends _$LeaveRequestNotifier {
   }) async {
     state = const AsyncValue.loading();
     try {
-      final client = Supabase.instance.client;
-      final emp = await client
+      final emp = await _c
           .from('employees')
           .select('id')
-          .eq('user_id', client.auth.currentUser!.id)
+          .eq('user_id', _c.auth.currentUser!.id)
           .single();
-
       final totalDays = toDate.difference(fromDate).inDays + 1;
-
-      await client.from('leave_requests').insert({
+      await _c.from('leave_requests').insert({
         'employee_id': emp['id'],
         'leave_type_id': leaveTypeId,
         'from_date': fromDate.toIso8601String().substring(0, 10),
@@ -356,18 +562,6 @@ class LeaveRequestNotifier extends _$LeaveRequestNotifier {
         'reason': reason,
         'status': 'pending',
       });
-
-      // Update pending balance
-      final year = DateTime.now().year;
-      await client.from('leave_balances').upsert({
-        'employee_id': emp['id'],
-        'leave_type_id': leaveTypeId,
-        'year': year,
-        'pending_days': totalDays,
-      }, onConflict: 'employee_id,leave_type_id,year');
-
-      ref.invalidate(myLeaveRequestsProvider);
-      ref.invalidate(myLeaveBalancesProvider);
       state = const AsyncValue.data(null);
       return true;
     } catch (e, st) {
@@ -380,14 +574,11 @@ class LeaveRequestNotifier extends _$LeaveRequestNotifier {
       String requestId, String status, String approverId) async {
     state = const AsyncValue.loading();
     try {
-      final client = Supabase.instance.client;
-      await client.from('leave_requests').update({
+      await _c.from('leave_requests').update({
         'status': status,
         'approved_by': approverId,
         'updated_at': DateTime.now().toIso8601String(),
       }).eq('id', requestId);
-
-      ref.invalidate(pendingLeaveApprovalsProvider);
       state = const AsyncValue.data(null);
       return true;
     } catch (e, st) {
@@ -397,36 +588,32 @@ class LeaveRequestNotifier extends _$LeaveRequestNotifier {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
 // PAYROLL PROVIDERS
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
 
-@riverpod
-Future<List<Map<String, dynamic>>> payrollRuns(PayrollRunsRef ref) async {
+final payrollRunsProvider =
+    FutureProvider<List<Map<String, dynamic>>>((ref) async {
   final client = ref.watch(supabaseClientProvider);
-  final data = await client
+  return List<Map<String, dynamic>>.from(await client
       .from('payroll_runs')
-      .select('*, employees!processed_by(first_name, last_name)')
+      .select()
       .order('year', ascending: false)
-      .order('month', ascending: false);
-  return List<Map<String, dynamic>>.from(data as List);
-}
+      .order('month', ascending: false) as List);
+});
 
-@riverpod
-Future<List<Map<String, dynamic>>> payslipsForRun(
-    PayslipsForRunRef ref, String runId) async {
+final payslipsForRunProvider =
+    FutureProvider.family<List<Map<String, dynamic>>, String>((ref, runId) async {
   final client = ref.watch(supabaseClientProvider);
-  final data = await client
+  return List<Map<String, dynamic>>.from(await client
       .from('payslips')
-      .select('*, employees(first_name, last_name, emp_code, designation, avatar_url, departments(name))')
+      .select('*, employees(first_name, last_name, emp_code, designation)')
       .eq('payroll_run_id', runId)
-      .order('net_salary', ascending: false);
-  return List<Map<String, dynamic>>.from(data as List);
-}
+      .order('net_salary', ascending: false) as List);
+});
 
-@riverpod
-Future<Map<String, dynamic>?> myLatestPayslip(
-    MyLatestPayslipRef ref) async {
+final myLatestPayslipProvider =
+    FutureProvider<Map<String, dynamic>?>((ref) async {
   final client = ref.watch(supabaseClientProvider);
   final emp = await client
       .from('employees')
@@ -434,7 +621,6 @@ Future<Map<String, dynamic>?> myLatestPayslip(
       .eq('user_id', client.auth.currentUser!.id)
       .maybeSingle();
   if (emp == null) return null;
-
   final data = await client
       .from('payslips')
       .select('*, payroll_runs(month, year)')
@@ -442,150 +628,127 @@ Future<Map<String, dynamic>?> myLatestPayslip(
       .order('created_at', ascending: false)
       .limit(1)
       .maybeSingle();
-
   return data != null ? Map<String, dynamic>.from(data) : null;
-}
+});
 
-@riverpod
-class PayrollRunNotifier extends _$PayrollRunNotifier {
-  @override
-  AsyncValue<String?> build() => const AsyncValue.data(null);
+final payrollRunNotifierProvider =
+    StateNotifierProvider<PayrollRunNotifier, AsyncValue<String?>>(
+  (_) => PayrollRunNotifier(),
+);
 
-  Future<bool> runPayroll({
-    required int month,
-    required int year,
-  }) async {
+class PayrollRunNotifier extends StateNotifier<AsyncValue<String?>> {
+  PayrollRunNotifier() : super(const AsyncValue.data(null));
+  SupabaseClient get _c => Supabase.instance.client;
+
+  Future<bool> runPayroll({required int month, required int year}) async {
     state = const AsyncValue.loading();
     try {
-      final client = Supabase.instance.client;
-      final processorEmp = await client
+      final processor = await _c
           .from('employees')
           .select('id')
-          .eq('user_id', client.auth.currentUser!.id)
+          .eq('user_id', _c.auth.currentUser!.id)
           .single();
 
-      // Get all active employees with salary structures
-      final employees = await client
+      final employees = await _c
           .from('employees')
           .select('*, salary_structures(*)')
           .eq('status', 'active');
-
       final empList = List<Map<String, dynamic>>.from(employees as List);
-      final startDate = '$year-${month.toString().padLeft(2, '0')}-01';
+
+      final startDate =
+          '$year-${month.toString().padLeft(2, '0')}-01';
       final lastDay = DateTime(year, month + 1, 0).day;
       final endDate =
           '$year-${month.toString().padLeft(2, '0')}-${lastDay.toString().padLeft(2, '0')}';
 
-      // Get attendance
-      final attendance = await client
+      final attendance = await _c
           .from('attendance')
           .select('employee_id, status')
           .gte('date', startDate)
           .lte('date', endDate);
+      final attList = List<Map<String, dynamic>>.from(attendance as List);
 
-      final attendanceList =
-          List<Map<String, dynamic>>.from(attendance as List);
-
-      // Count working days in month
       int workDays = 0;
       for (int d = 1; d <= lastDay; d++) {
         final wd = DateTime(year, month, d).weekday;
         if (wd != 6 && wd != 7) workDays++;
       }
 
-      double totalGross = 0, totalDeductions = 0, totalNet = 0;
-
-      // Create payroll run
-      final run = await client.from('payroll_runs').insert({
+      final run = await _c.from('payroll_runs').insert({
         'month': month,
         'year': year,
         'status': 'processing',
-        'processed_by': processorEmp['id'],
+        'processed_by': processor['id'],
         'processed_at': DateTime.now().toIso8601String(),
         'employee_count': empList.length,
       }).select().single();
 
       final runId = run['id'] as String;
-
-      List<Map<String, dynamic>> payslipRecords = [];
+      double totalGross = 0, totalDed = 0, totalNet = 0;
+      final payslips = <Map<String, dynamic>>[];
 
       for (final emp in empList) {
-        final salStructures =
-            emp['salary_structures'] as List<dynamic>? ?? [];
-        if (salStructures.isEmpty) continue;
-        final sal = Map<String, dynamic>.from(salStructures.first);
-
+        final structs = emp['salary_structures'] as List? ?? [];
+        if (structs.isEmpty) continue;
+        final sal = Map<String, dynamic>.from(structs.first as Map);
         final basic = (sal['basic_salary'] as num? ?? 0).toDouble();
         final house = (sal['house_allowance'] as num? ?? 0).toDouble();
-        final transport =
-            (sal['transport_allowance'] as num? ?? 0).toDouble();
-        final medical =
-            (sal['medical_allowance'] as num? ?? 0).toDouble();
+        final transport = (sal['transport_allowance'] as num? ?? 0).toDouble();
+        final medical = (sal['medical_allowance'] as num? ?? 0).toDouble();
         final meal = (sal['meal_allowance'] as num? ?? 0).toDouble();
-        final otherAllow =
-            (sal['other_allowance'] as num? ?? 0).toDouble();
+        final other = (sal['other_allowance'] as num? ?? 0).toDouble();
         final tax = (sal['tax_deduction'] as num? ?? 0).toDouble();
-        final insurance =
-            (sal['insurance_deduction'] as num? ?? 0).toDouble();
+        final ins = (sal['insurance_deduction'] as num? ?? 0).toDouble();
         final pf = (sal['provident_fund'] as num? ?? 0).toDouble();
-
-        final gross = basic + house + transport + medical + meal + otherAllow;
+        final gross = basic + house + transport + medical + meal + other;
         final perDay = workDays > 0 ? gross / workDays : 0.0;
-
-        final empAttendance = attendanceList
-            .where((a) => a['employee_id'] == emp['id'])
-            .toList();
-        final presentDays = empAttendance
+        final present = attList
             .where((a) =>
-                a['status'] == 'present' ||
-                a['status'] == 'late' ||
-                a['status'] == 'half_day')
+                a['employee_id'] == emp['id'] &&
+                (a['status'] == 'present' ||
+                    a['status'] == 'late' ||
+                    a['status'] == 'half_day'))
             .length;
-        final absentDays = workDays - presentDays;
-        final absentDeduction = absentDays * perDay;
-
-        final totalDed = tax + insurance + pf + absentDeduction;
-        final net = (gross - totalDed).clamp(0, double.infinity);
-
+        final absent = workDays - present;
+        final absentDed = absent * perDay;
+        final ded = tax + ins + pf + absentDed;
+        final net = (gross - ded).clamp(0.0, double.infinity);
         totalGross += gross;
-        totalDeductions += totalDed;
+        totalDed += ded;
         totalNet += net;
-
-        payslipRecords.add({
+        payslips.add({
           'payroll_run_id': runId,
           'employee_id': emp['id'],
           'basic_salary': basic,
           'house_allowance': house,
           'transport_allowance': transport,
           'medical_allowance': medical,
-          'other_allowances': meal + otherAllow,
+          'other_allowances': meal + other,
           'gross_salary': gross,
           'tax_deduction': tax,
-          'insurance_deduction': insurance,
+          'insurance_deduction': ins,
           'provident_fund': pf,
-          'absent_deduction': absentDeduction,
-          'total_deductions': totalDed,
+          'absent_deduction': absentDed,
+          'total_deductions': ded,
           'net_salary': net,
           'working_days': workDays,
-          'paid_days': presentDays,
-          'absent_days': absentDays,
+          'paid_days': present,
+          'absent_days': absent,
           'status': 'generated',
         });
       }
 
-      if (payslipRecords.isNotEmpty) {
-        await client.from('payslips').insert(payslipRecords);
+      if (payslips.isNotEmpty) {
+        await _c.from('payslips').insert(payslips);
       }
-
-      await client.from('payroll_runs').update({
+      await _c.from('payroll_runs').update({
         'status': 'approved',
         'total_gross': totalGross,
-        'total_deductions': totalDeductions,
+        'total_deductions': totalDed,
         'total_net': totalNet,
-        'employee_count': payslipRecords.length,
+        'employee_count': payslips.length,
       }).eq('id', runId);
 
-      ref.invalidate(payrollRunsProvider);
       state = AsyncValue.data(runId);
       return true;
     } catch (e, st) {
@@ -595,68 +758,69 @@ class PayrollRunNotifier extends _$PayrollRunNotifier {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
 // DASHBOARD PROVIDERS
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
 
-@riverpod
-Future<Map<String, dynamic>> dashboardStats(DashboardStatsRef ref) async {
+final dashboardStatsProvider =
+    FutureProvider<Map<String, dynamic>>((ref) async {
   final client = ref.watch(supabaseClientProvider);
   final today = DateTime.now().toIso8601String().substring(0, 10);
-  final thisMonth = DateTime.now().month;
-  final thisYear = DateTime.now().year;
-
-  final results = await Future.wait([
-    client.from('employees').count().eq('status', 'active'),
-    client.from('attendance').count().eq('date', today).eq('status', 'present'),
-    client.from('leave_requests').count().eq('status', 'pending'),
-    client.from('payroll_runs').select('total_net').eq('month', thisMonth).eq('year', thisYear).maybeSingle(),
-  ]);
-
+  final month = DateTime.now().month;
+  final year = DateTime.now().year;
+  final emps = await client
+      .from('employees')
+      .select('status');
+  final empList = List<Map<String, dynamic>>.from(emps as List);
+  final presentToday = await client
+      .from('attendance')
+      .select('id')
+      .eq('date', today)
+      .eq('status', 'present');
+  final pendingLeaves = await client
+      .from('leave_requests')
+      .select('id')
+      .eq('status', 'pending');
+  final payroll = await client
+      .from('payroll_runs')
+      .select('total_net')
+      .eq('month', month)
+      .eq('year', year)
+      .maybeSingle();
   return {
-    'total_employees': results[0],
-    'present_today': results[1],
-    'pending_leaves': results[2],
-    'payroll_this_month': (results[3] as Map?)?['total_net'] ?? 0,
+    'total_employees': empList.where((e) => e['status'] == 'active').length,
+    'present_today': (presentToday as List).length,
+    'pending_leaves': (pendingLeaves as List).length,
+    'payroll_this_month': (payroll?['total_net'] as num? ?? 0).toDouble(),
   };
-}
+});
 
-@riverpod
-Future<List<Map<String, dynamic>>> attendanceTrend(
-    AttendanceTrendRef ref) async {
+final attendanceTrendProvider =
+    FutureProvider<List<Map<String, dynamic>>>((ref) async {
   final client = ref.watch(supabaseClientProvider);
   final today = DateTime.now();
-
-  List<Map<String, dynamic>> trend = [];
+  final days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  final trend = <Map<String, dynamic>>[];
   for (int i = 6; i >= 0; i--) {
     final day = today.subtract(Duration(days: i));
     final dateStr = day.toIso8601String().substring(0, 10);
-
-    final present = await client
+    final all = await client
         .from('attendance')
-        .count()
-        .eq('date', dateStr)
-        .eq('status', 'present');
-
-    final absent = await client
-        .from('attendance')
-        .count()
-        .eq('date', dateStr)
-        .eq('status', 'absent');
-
+        .select('status')
+        .eq('date', dateStr);
+    final list = List<Map<String, dynamic>>.from(all as List);
     trend.add({
       'date': dateStr,
-      'day': ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][day.weekday - 1],
-      'present': present,
-      'absent': absent,
+      'day': days[day.weekday - 1],
+      'present': list.where((a) => a['status'] == 'present').length,
+      'absent': list.where((a) => a['status'] == 'absent').length,
     });
   }
   return trend;
-}
+});
 
-@riverpod
-Future<List<Map<String, dynamic>>> payrollTrend(
-    PayrollTrendRef ref) async {
+final payrollTrendProvider =
+    FutureProvider<List<Map<String, dynamic>>>((ref) async {
   final client = ref.watch(supabaseClientProvider);
   final data = await client
       .from('payroll_runs')
@@ -666,120 +830,100 @@ Future<List<Map<String, dynamic>>> payrollTrend(
       .order('month', ascending: false)
       .limit(6);
   return List<Map<String, dynamic>>.from((data as List).reversed.toList());
-}
+});
 
-@riverpod
-Future<List<Map<String, dynamic>>> departmentDistribution(
-    DepartmentDistributionRef ref) async {
+final departmentDistributionProvider =
+    FutureProvider<List<Map<String, dynamic>>>((ref) async {
   final client = ref.watch(supabaseClientProvider);
   final emps = await client
       .from('employees')
       .select('department_id, departments(name)')
       .eq('status', 'active');
-
   final empList = List<Map<String, dynamic>>.from(emps as List);
-  final Map<String, int> counts = {};
-
-  for (final emp in empList) {
-    final deptName =
-        (emp['departments'] as Map?)?['name'] as String? ?? 'Unknown';
-    counts[deptName] = (counts[deptName] ?? 0) + 1;
+  final counts = <String, int>{};
+  for (final e in empList) {
+    final name = (e['departments'] as Map?)?['name'] as String? ?? 'Unknown';
+    counts[name] = (counts[name] ?? 0) + 1;
   }
-
-  return counts.entries
+  final result = counts.entries
       .map((e) => {'department': e.key, 'count': e.value})
       .toList()
     ..sort((a, b) => (b['count'] as int).compareTo(a['count'] as int));
-}
+  return result;
+});
 
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
 // CRM PROVIDERS
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
 
-@riverpod
-Future<List<Map<String, dynamic>>> crmLeads(CrmLeadsRef ref,
-    {String? stage, String? search}) async {
+final crmLeadsProvider = FutureProvider.family<List<Map<String, dynamic>>,
+    ({String? stage, String? search})>((ref, p) async {
   final client = ref.watch(supabaseClientProvider);
   var query = client
       .from('crm_leads')
       .select('*, employees!assigned_to(first_name, last_name)')
       .order('created_at', ascending: false);
-
-  if (stage != null && stage.isNotEmpty) {
-    query = query.eq('stage', stage) as dynamic;
+  if (p.stage != null && p.stage!.isNotEmpty) {
+    query = query.eq('stage', p.stage!) as dynamic;
   }
-  if (search != null && search.isNotEmpty) {
+  if (p.search != null && p.search!.isNotEmpty) {
     query = query.or(
-      'company_name.ilike.%$search%,contact_name.ilike.%$search%,email.ilike.%$search%',
-    ) as dynamic;
+        'company_name.ilike.%${p.search}%,contact_name.ilike.%${p.search}%') as dynamic;
   }
+  return List<Map<String, dynamic>>.from(await query as List);
+});
 
-  final data = await query;
-  return List<Map<String, dynamic>>.from(data as List);
-}
-
-@riverpod
-Future<List<Map<String, dynamic>>> crmClients(CrmClientsRef ref) async {
+final crmClientsProvider =
+    FutureProvider<List<Map<String, dynamic>>>((ref) async {
   final client = ref.watch(supabaseClientProvider);
-  final data = await client
-      .from('crm_clients')
-      .select()
-      .order('company_name');
-  return List<Map<String, dynamic>>.from(data as List);
-}
+  return List<Map<String, dynamic>>.from(
+      await client.from('crm_clients').select().order('company_name') as List);
+});
 
-@riverpod
-Future<Map<String, dynamic>> crmStats(CrmStatsRef ref) async {
+final crmStatsProvider =
+    FutureProvider<Map<String, dynamic>>((ref) async {
   final client = ref.watch(supabaseClientProvider);
   final leads = await client.from('crm_leads').select('stage, deal_value');
-  final leadList = List<Map<String, dynamic>>.from(leads as List);
-
-  double totalPipeline = 0;
+  final list = List<Map<String, dynamic>>.from(leads as List);
+  double pipeline = 0;
   int won = 0, lost = 0, inProgress = 0;
-
-  for (final l in leadList) {
-    final val = (l['deal_value'] as num? ?? 0).toDouble();
-    totalPipeline += val;
-    final stage = l['stage'] as String?;
-    if (stage == 'won') {
-      won++;
-    } else if (stage == 'lost') {
-      lost++;
-    } else {
-      inProgress++;
-    }
+  for (final l in list) {
+    pipeline += (l['deal_value'] as num? ?? 0).toDouble();
+    if (l['stage'] == 'won') won++;
+    else if (l['stage'] == 'lost') lost++;
+    else inProgress++;
   }
-
-  final clients = await client.from('crm_clients').count();
-
+  final clients = await client.from('crm_clients').select('id');
   return {
-    'total_leads': leadList.length,
-    'pipeline_value': totalPipeline,
+    'total_leads': list.length,
+    'pipeline_value': pipeline,
     'won': won,
     'lost': lost,
     'in_progress': inProgress,
-    'total_clients': clients,
-    'conversion_rate': leadList.isNotEmpty
-        ? ((won / leadList.length) * 100).toStringAsFixed(1)
+    'total_clients': (clients as List).length,
+    'conversion_rate': list.isNotEmpty
+        ? ((won / list.length) * 100).toStringAsFixed(1)
         : '0',
   };
-}
+});
 
-@riverpod
-class CrmLeadNotifier extends _$CrmLeadNotifier {
-  @override
-  AsyncValue<void> build() => const AsyncValue.data(null);
+final crmLeadNotifierProvider =
+    StateNotifierProvider<CrmLeadNotifier, AsyncValue<void>>(
+  (_) => CrmLeadNotifier(),
+);
+
+class CrmLeadNotifier extends StateNotifier<AsyncValue<void>> {
+  CrmLeadNotifier() : super(const AsyncValue.data(null));
+  SupabaseClient get _c => Supabase.instance.client;
 
   Future<bool> saveLead(Map<String, dynamic> data, {String? leadId}) async {
     state = const AsyncValue.loading();
     try {
-      final client = Supabase.instance.client;
       if (leadId != null) {
-        await client.from('crm_leads').update(data).eq('id', leadId);
+        await _c.from('crm_leads').update(data).eq('id', leadId);
       } else {
-        await client.from('crm_leads').insert(data);
+        await _c.from('crm_leads').insert(data);
       }
-      ref.invalidate(crmLeadsProvider);
       state = const AsyncValue.data(null);
       return true;
     } catch (e, st) {
@@ -788,16 +932,13 @@ class CrmLeadNotifier extends _$CrmLeadNotifier {
     }
   }
 
-  Future<bool> updateStage(String leadId, String newStage) async {
+  Future<bool> updateStage(String leadId, String stage) async {
     state = const AsyncValue.loading();
     try {
-      final client = Supabase.instance.client;
-      await client
-          .from('crm_leads')
-          .update({'stage': newStage, 'updated_at': DateTime.now().toIso8601String()})
-          .eq('id', leadId);
-      ref.invalidate(crmLeadsProvider);
-      ref.invalidate(crmStatsProvider);
+      await _c.from('crm_leads').update({
+        'stage': stage,
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', leadId);
       state = const AsyncValue.data(null);
       return true;
     } catch (e, st) {
