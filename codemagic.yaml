@@ -1,0 +1,74 @@
+# Codemagic CI/CD — Flutter Android APK Build
+# Docs: https://docs.codemagic.io
+
+workflows:
+  android-release:
+    name: Android Release APK
+    max_build_duration: 60
+    environment:
+      flutter: 3.24.0
+      java: 17
+      vars:
+        SUPABASE_URL: "https://iuuzzlcyaduhmhkfecgp.supabase.co"
+        SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml1dXp6bGN5YWR1aG1oa2ZlY2dwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIzNjMxNjYsImV4cCI6MjA5NzkzOTE2Nn0.vKCOwTXe5m36Zs6hCVbDQeqecYvml8hiaAM0irudgtA"
+
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+
+    scripts:
+      - name: Bootstrap Android project
+        script: |
+          cp -r lib /tmp/src_lib
+          cp pubspec.yaml /tmp/src_pubspec.yaml
+          flutter create --project-name hrm_erp --org com.hrmerp --platforms android .
+          rm -rf lib
+          cp -r /tmp/src_lib lib
+          cp /tmp/src_pubspec.yaml pubspec.yaml
+
+      - name: Set minSdk to 21
+        script: |
+          for f in android/app/build.gradle android/app/build.gradle.kts; do
+            if [ -f "$f" ]; then
+              sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' "$f"
+              sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' "$f"
+            fi
+          done
+
+      - name: Add INTERNET permission
+        script: |
+          M=android/app/src/main/AndroidManifest.xml
+          grep -q "INTERNET" "$M" || \
+            sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <application|' "$M"
+
+      - name: Get Flutter packages
+        script: flutter pub get
+
+      - name: Generate code
+        script: dart run build_runner build --delete-conflicting-outputs
+        ignore_failure: true
+
+      - name: Flutter analyze
+        script: flutter analyze --no-fatal-infos --no-fatal-warnings
+        ignore_failure: true
+
+      - name: Build release APK
+        script: |
+          flutter build apk --release \
+            "--dart-define=SUPABASE_URL=$SUPABASE_URL" \
+            "--dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY"
+
+    artifacts:
+      - build/app/outputs/flutter-apk/app-release.apk
+      - build/app/outputs/flutter-apk/*.apk
+
+    publishing:
+      email:
+        recipients:
+          - xebecbd666@gmail.com
+        notify:
+          success: true
+          failure: true
