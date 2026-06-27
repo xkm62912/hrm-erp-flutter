@@ -1,357 +1,142 @@
 // lib/presentation/providers/all_providers.dart
-// Plain Riverpod providers — no code generation required
+// ALL imports MUST be at the top — fixed directive_after_declaration errors
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+// ── Equality classes for FutureProvider.family params ────────────────────────
+
+class EmployeeFilter {
+  final String search;
+  final String? status;
+  final String? departmentId;
+  const EmployeeFilter({this.search = '', this.status, this.departmentId});
+  @override
+  bool operator ==(Object o) =>
+      o is EmployeeFilter &&
+      o.search == search &&
+      o.status == status &&
+      o.departmentId == departmentId;
+  @override
+  int get hashCode => Object.hash(search, status, departmentId);
+}
+
+class AttendanceFilter {
+  final int month;
+  final int year;
+  final String? employeeId;
+  const AttendanceFilter(
+      {required this.month, required this.year, this.employeeId});
+  @override
+  bool operator ==(Object o) =>
+      o is AttendanceFilter &&
+      o.month == month &&
+      o.year == year &&
+      o.employeeId == employeeId;
+  @override
+  int get hashCode => Object.hash(month, year, employeeId);
+}
+
+class CrmLeadFilter {
+  final String? stage;
+  final String? search;
+  const CrmLeadFilter({this.stage, this.search});
+  @override
+  bool operator ==(Object o) =>
+      o is CrmLeadFilter && o.stage == stage && o.search == search;
+  @override
+  int get hashCode => Object.hash(stage, search);
+}
 
 // ════════════════════════════════════════════════════════════
 // CORE
 // ════════════════════════════════════════════════════════════
 
-final supabaseClientProvider = Provider<SupabaseClient>(
-  (_) => Supabase.instance.client,
-);
+final supabaseClientProvider =
+    Provider<SupabaseClient>((_) => Supabase.instance.client);
 
 // ════════════════════════════════════════════════════════════
 // AUTH
 // ════════════════════════════════════════════════════════════
 
 final authStateProvider = StreamProvider<AuthState>(
-  (ref) => Supabase.instance.client.auth.onAuthStateChange,
-);
+    (_) => Supabase.instance.client.auth.onAuthStateChange);
 
 final authNotifierProvider =
     StateNotifierProvider<AuthNotifier, AsyncValue<User?>>(
-  (ref) => AuthNotifier(),
-);
+        (_) => AuthNotifier());
 
 class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
   AuthNotifier()
       : super(AsyncValue.data(Supabase.instance.client.auth.currentUser));
 
-  SupabaseClient get _client => Supabase.instance.client;
+  SupabaseClient get _c => Supabase.instance.client;
 
   Future<void> signIn(String email, String password) async {
     state = const AsyncValue.loading();
     try {
-      final res = await _client.auth
-          .signInWithPassword(email: email, password: password);
-      state = AsyncValue.data(res.user);
+      final r =
+          await _c.auth.signInWithPassword(email: email, password: password);
+      state = AsyncValue.data(r.user);
     } catch (e, st) {
       state = AsyncValue.error(e, st);
     }
   }
 
   Future<void> signOut() async {
-    await _client.auth.signOut();
+    await _c.auth.signOut();
     state = const AsyncValue.data(null);
   }
 
   Future<String?> getUserRole() async {
-    final uid = _client.auth.currentUser?.id;
+    final uid = _c.auth.currentUser?.id;
     if (uid == null) return null;
-    final res = await _client
+    final r = await _c
         .from('user_roles')
         .select('role')
         .eq('user_id', uid)
         .maybeSingle();
-    return res?['role'] as String?;
+    return r?['role'] as String?;
   }
 }
 
-final userRoleProvider = FutureProvider<String?>((ref) async {
-  return ref.read(authNotifierProvider.notifier).getUserRole();
-});
-
-// ════════════════════════════════════════════════════════════
-// ROUTER
-// ════════════════════════════════════════════════════════════
-
-final appRouterProvider = Provider<GoRouter>((ref) {
-  final authState = ref.watch(authStateProvider);
-  return GoRouter(
-    initialLocation: '/splash',
-    redirect: (context, state) {
-      final isAuthenticated = authState.valueOrNull?.session != null ||
-          Supabase.instance.client.auth.currentSession != null;
-      final loc = state.matchedLocation;
-      if (loc == '/splash') return null;
-      if (!isAuthenticated && loc != '/login') return '/login';
-      if (isAuthenticated && loc == '/login') return '/dashboard';
-      return null;
-    },
-    routes: _buildRoutes(),
-    errorBuilder: (ctx, state) => _ErrorPage(uri: state.uri.toString()),
-  );
-});
-
-List<RouteBase> _buildRoutes() {
-  return [
-    GoRoute(path: '/splash', builder: (_, __) => const _SplashRedirect()),
-    GoRoute(
-        path: '/login',
-        builder: (_, __) {
-          // Lazy import to avoid circular
-          return const _LoginPlaceholder();
-        }),
-    ShellRoute(
-      builder: (_, __, child) => _MainShellWrapper(child: child),
-      routes: [
-        GoRoute(path: '/dashboard', builder: (_, __) => const _DashPlaceholder()),
-        GoRoute(
-          path: '/employees',
-          builder: (_, __) => const _EmpListPlaceholder(),
-          routes: [
-            GoRoute(path: 'add', builder: (_, __) => const _EmpFormPlaceholder()),
-            GoRoute(
-              path: ':id',
-              builder: (_, state) =>
-                  _EmpDetailPlaceholder(id: state.pathParameters['id']!),
-              routes: [
-                GoRoute(
-                  path: 'edit',
-                  builder: (_, state) => _EmpFormPlaceholder(
-                      employeeId: state.pathParameters['id']),
-                ),
-              ],
-            ),
-          ],
-        ),
-        GoRoute(path: '/attendance', builder: (_, __) => const _AttPlaceholder()),
-        GoRoute(
-          path: '/leave',
-          builder: (_, __) => const _LeaveListPlaceholder(),
-          routes: [
-            GoRoute(path: 'request', builder: (_, __) => const _LeaveReqPlaceholder()),
-            GoRoute(path: 'approval', builder: (_, __) => const _LeaveAppPlaceholder()),
-          ],
-        ),
-        GoRoute(
-          path: '/payroll',
-          builder: (_, __) => const _PayrollListPlaceholder(),
-          routes: [
-            GoRoute(path: 'run', builder: (_, __) => const _PayrollRunPlaceholder()),
-            GoRoute(
-                path: 'payslip/:id',
-                builder: (_, state) =>
-                    _PayslipPlaceholder(id: state.pathParameters['id']!)),
-          ],
-        ),
-        GoRoute(
-          path: '/crm',
-          builder: (_, __) => const _CrmDashPlaceholder(),
-          routes: [
-            GoRoute(
-              path: 'leads',
-              builder: (_, __) => const _LeadListPlaceholder(),
-              routes: [
-                GoRoute(path: 'add', builder: (_, __) => const _LeadFormPlaceholder()),
-                GoRoute(
-                    path: ':id/edit',
-                    builder: (_, state) =>
-                        _LeadFormPlaceholder(leadId: state.pathParameters['id'])),
-              ],
-            ),
-            GoRoute(path: 'clients', builder: (_, __) => const _ClientListPlaceholder()),
-          ],
-        ),
-      ],
-    ),
-  ];
-}
-
-// Placeholder widgets that import the real screens
-import 'package:flutter/material.dart';
-import '../modules/auth/splash_screen.dart';
-import '../modules/auth/login_screen.dart';
-import '../modules/dashboard/dashboard_screen.dart';
-import '../modules/employees/employee_screens.dart';
-import '../modules/attendance/attendance_screen.dart';
-import '../modules/leave/leave_screens.dart';
-import '../modules/payroll/payroll_screens.dart';
-import '../modules/crm/crm_screens.dart';
-import '../shared/widgets/main_shell.dart';
-
-class _SplashRedirect extends StatelessWidget {
-  const _SplashRedirect();
-  @override
-  Widget build(BuildContext context) => const SplashScreen();
-}
-
-class _LoginPlaceholder extends StatelessWidget {
-  const _LoginPlaceholder();
-  @override
-  Widget build(BuildContext context) => const LoginScreen();
-}
-
-class _MainShellWrapper extends StatelessWidget {
-  final Widget child;
-  const _MainShellWrapper({required this.child});
-  @override
-  Widget build(BuildContext context) => MainShell(child: child);
-}
-
-class _DashPlaceholder extends StatelessWidget {
-  const _DashPlaceholder();
-  @override
-  Widget build(BuildContext context) => const DashboardScreen();
-}
-
-class _EmpListPlaceholder extends StatelessWidget {
-  const _EmpListPlaceholder();
-  @override
-  Widget build(BuildContext context) => const EmployeeListScreen();
-}
-
-class _EmpDetailPlaceholder extends StatelessWidget {
-  final String id;
-  const _EmpDetailPlaceholder({required this.id});
-  @override
-  Widget build(BuildContext context) => EmployeeDetailScreen(id: id);
-}
-
-class _EmpFormPlaceholder extends StatelessWidget {
-  final String? employeeId;
-  const _EmpFormPlaceholder({this.employeeId});
-  @override
-  Widget build(BuildContext context) => EmployeeFormScreen(employeeId: employeeId);
-}
-
-class _AttPlaceholder extends StatelessWidget {
-  const _AttPlaceholder();
-  @override
-  Widget build(BuildContext context) => const AttendanceScreen();
-}
-
-class _LeaveListPlaceholder extends StatelessWidget {
-  const _LeaveListPlaceholder();
-  @override
-  Widget build(BuildContext context) => const LeaveListScreen();
-}
-
-class _LeaveReqPlaceholder extends StatelessWidget {
-  const _LeaveReqPlaceholder();
-  @override
-  Widget build(BuildContext context) => const LeaveRequestScreen();
-}
-
-class _LeaveAppPlaceholder extends StatelessWidget {
-  const _LeaveAppPlaceholder();
-  @override
-  Widget build(BuildContext context) => const LeaveApprovalScreen();
-}
-
-class _PayrollListPlaceholder extends StatelessWidget {
-  const _PayrollListPlaceholder();
-  @override
-  Widget build(BuildContext context) => const PayrollListScreen();
-}
-
-class _PayrollRunPlaceholder extends StatelessWidget {
-  const _PayrollRunPlaceholder();
-  @override
-  Widget build(BuildContext context) => const PayrollRunScreen();
-}
-
-class _PayslipPlaceholder extends StatelessWidget {
-  final String id;
-  const _PayslipPlaceholder({required this.id});
-  @override
-  Widget build(BuildContext context) => PayslipDetailScreen(payslipId: id);
-}
-
-class _CrmDashPlaceholder extends StatelessWidget {
-  const _CrmDashPlaceholder();
-  @override
-  Widget build(BuildContext context) => const CrmDashboardScreen();
-}
-
-class _LeadListPlaceholder extends StatelessWidget {
-  const _LeadListPlaceholder();
-  @override
-  Widget build(BuildContext context) => const LeadListScreen();
-}
-
-class _LeadFormPlaceholder extends StatelessWidget {
-  final String? leadId;
-  const _LeadFormPlaceholder({this.leadId});
-  @override
-  Widget build(BuildContext context) => LeadFormScreen(leadId: leadId);
-}
-
-class _ClientListPlaceholder extends StatelessWidget {
-  const _ClientListPlaceholder();
-  @override
-  Widget build(BuildContext context) => const ClientListScreen();
-}
-
-class _ErrorPage extends StatelessWidget {
-  final String uri;
-  const _ErrorPage({required this.uri});
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        body: Center(
-          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-            const Icon(Icons.error_outline, size: 64, color: Colors.red),
-            const SizedBox(height: 16),
-            Text('Page not found: $uri'),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () => context.go('/dashboard'),
-              child: const Text('Go Home'),
-            ),
-          ]),
-        ),
-      );
-}
+final userRoleProvider = FutureProvider<String?>(
+    (ref) => ref.read(authNotifierProvider.notifier).getUserRole());
 
 // ════════════════════════════════════════════════════════════
 // EMPLOYEE PROVIDERS
 // ════════════════════════════════════════════════════════════
 
-final employeesProvider = FutureProvider.family<List<Map<String, dynamic>>,
-    ({String search, String? status, String? departmentId})>((ref, params) async {
-  final client = ref.watch(supabaseClientProvider);
-  var query = client
-      .from('employees')
-      .select('*, departments(name)')
-      .order('first_name');
-  if (params.status != null && params.status!.isNotEmpty) {
-    query = query.eq('status', params.status!) as dynamic;
+final employeesProvider = FutureProvider.family<
+    List<Map<String, dynamic>>, EmployeeFilter>((ref, f) async {
+  final c = ref.watch(supabaseClientProvider);
+  // Apply filters BEFORE .order() — fixes 'eq not defined on TransformBuilder'
+  var q = c.from('employees').select('*, departments(name)');
+  if (f.status != null && f.status!.isNotEmpty) q = q.eq('status', f.status!);
+  if (f.departmentId != null) q = q.eq('department_id', f.departmentId!);
+  if (f.search.isNotEmpty) {
+    q = q.or(
+        'first_name.ilike.%${f.search}%,last_name.ilike.%${f.search}%,emp_code.ilike.%${f.search}%');
   }
-  if (params.departmentId != null) {
-    query = query.eq('department_id', params.departmentId!) as dynamic;
-  }
-  if (params.search.isNotEmpty) {
-    query = query.or(
-      'first_name.ilike.%${params.search}%,last_name.ilike.%${params.search}%,emp_code.ilike.%${params.search}%',
-    ) as dynamic;
-  }
-  return List<Map<String, dynamic>>.from(await query as List);
-});
-
-// Convenience overloads
-final employeesProviderDefault = FutureProvider<List<Map<String, dynamic>>>((ref) async {
-  return ref.watch(employeesProvider((search: '', status: null, departmentId: null)).future);
+  final r = await q.order('first_name');
+  return List<Map<String, dynamic>>.from(r as List);
 });
 
 final employeeDetailProvider =
     FutureProvider.family<Map<String, dynamic>, String>((ref, id) async {
-  final client = ref.watch(supabaseClientProvider);
-  final data = await client
+  final c = ref.watch(supabaseClientProvider);
+  final r = await c
       .from('employees')
       .select('*, departments(name), salary_structures(*)')
       .eq('id', id)
       .single();
-  return Map<String, dynamic>.from(data);
+  return Map<String, dynamic>.from(r);
 });
 
-final employeeStatsProvider =
-    FutureProvider<Map<String, int>>((ref) async {
-  final client = ref.watch(supabaseClientProvider);
-  final all = await client.from('employees').select('status, join_date');
-  final list = List<Map<String, dynamic>>.from(all as List);
+final employeeStatsProvider = FutureProvider<Map<String, int>>((ref) async {
+  final c = ref.watch(supabaseClientProvider);
+  final list = List<Map<String, dynamic>>.from(
+      await c.from('employees').select('status, join_date') as List);
   final cutoff = DateTime.now().subtract(const Duration(days: 30));
   return {
     'total': list.length,
@@ -367,9 +152,9 @@ final employeeStatsProvider =
 
 final departmentsProvider =
     FutureProvider<List<Map<String, dynamic>>>((ref) async {
-  final client = ref.watch(supabaseClientProvider);
+  final c = ref.watch(supabaseClientProvider);
   return List<Map<String, dynamic>>.from(
-      await client.from('departments').select().order('name') as List);
+      await c.from('departments').select().order('name') as List);
 });
 
 // ════════════════════════════════════════════════════════════
@@ -378,34 +163,33 @@ final departmentsProvider =
 
 final todayAttendanceProvider =
     FutureProvider<Map<String, dynamic>?>((ref) async {
-  final client = ref.watch(supabaseClientProvider);
-  final user = client.auth.currentUser;
+  final c = ref.watch(supabaseClientProvider);
+  final user = c.auth.currentUser;
   if (user == null) return null;
-  final emp = await client
+  final emp = await c
       .from('employees')
       .select('id')
       .eq('user_id', user.id)
       .maybeSingle();
   if (emp == null) return null;
   final today = DateTime.now().toIso8601String().substring(0, 10);
-  final data = await client
+  final r = await c
       .from('attendance')
       .select()
-      .eq('employee_id', emp['id'])
+      .eq('employee_id', emp['id'] as String)
       .eq('date', today)
       .maybeSingle();
-  return data != null ? Map<String, dynamic>.from(data) : null;
+  return r != null ? Map<String, dynamic>.from(r) : null;
 });
 
 final monthlyAttendanceProvider = FutureProvider.family<
-    List<Map<String, dynamic>>,
-    ({int month, int year, String? employeeId})>((ref, p) async {
-  final client = ref.watch(supabaseClientProvider);
-  String? empId = p.employeeId;
+    List<Map<String, dynamic>>, AttendanceFilter>((ref, f) async {
+  final c = ref.watch(supabaseClientProvider);
+  String? empId = f.employeeId;
   if (empId == null) {
-    final user = client.auth.currentUser;
+    final user = c.auth.currentUser;
     if (user == null) return [];
-    final emp = await client
+    final emp = await c
         .from('employees')
         .select('id')
         .eq('user_id', user.id)
@@ -413,29 +197,26 @@ final monthlyAttendanceProvider = FutureProvider.family<
     empId = emp?['id'] as String?;
     if (empId == null) return [];
   }
-  final start =
-      '${p.year}-${p.month.toString().padLeft(2, '0')}-01';
-  final lastDay = DateTime(p.year, p.month + 1, 0).day;
-  final end =
-      '${p.year}-${p.month.toString().padLeft(2, '0')}-${lastDay.toString().padLeft(2, '0')}';
-  final data = await client
+  final mm = f.month.toString().padLeft(2, '0');
+  final start = '${f.year}-$mm-01';
+  final lastDay = DateTime(f.year, f.month + 1, 0).day;
+  final end = '${f.year}-$mm-${lastDay.toString().padLeft(2, '0')}';
+  final r = await c
       .from('attendance')
       .select()
       .eq('employee_id', empId)
       .gte('date', start)
       .lte('date', end)
       .order('date');
-  return List<Map<String, dynamic>>.from(data as List);
+  return List<Map<String, dynamic>>.from(r as List);
 });
 
 final attendanceActionProvider =
     StateNotifierProvider<AttendanceActionNotifier, AsyncValue<void>>(
-  (_) => AttendanceActionNotifier(),
-);
+        (_) => AttendanceActionNotifier());
 
 class AttendanceActionNotifier extends StateNotifier<AsyncValue<void>> {
   AttendanceActionNotifier() : super(const AsyncValue.data(null));
-
   SupabaseClient get _c => Supabase.instance.client;
 
   Future<void> checkIn() async {
@@ -469,9 +250,11 @@ class AttendanceActionNotifier extends StateNotifier<AsyncValue<void>> {
           .eq('user_id', _c.auth.currentUser!.id)
           .single();
       final today = DateTime.now().toIso8601String().substring(0, 10);
-      await _c.from('attendance').update({
-        'check_out': DateTime.now().toIso8601String(),
-      }).eq('employee_id', emp['id']).eq('date', today);
+      await _c
+          .from('attendance')
+          .update({'check_out': DateTime.now().toIso8601String()})
+          .eq('employee_id', emp['id'] as String)
+          .eq('date', today);
       state = const AsyncValue.data(null);
     } catch (e, st) {
       state = AsyncValue.error(e, st);
@@ -485,55 +268,58 @@ class AttendanceActionNotifier extends StateNotifier<AsyncValue<void>> {
 
 final leaveTypesProvider =
     FutureProvider<List<Map<String, dynamic>>>((ref) async {
-  final client = ref.watch(supabaseClientProvider);
-  return List<Map<String, dynamic>>.from(
-      await client.from('leave_types').select().eq('is_active', true).order('name') as List);
+  final c = ref.watch(supabaseClientProvider);
+  return List<Map<String, dynamic>>.from(await c
+      .from('leave_types')
+      .select()
+      .eq('is_active', true)
+      .order('name') as List);
 });
 
 final myLeaveRequestsProvider =
     FutureProvider<List<Map<String, dynamic>>>((ref) async {
-  final client = ref.watch(supabaseClientProvider);
-  final emp = await client
+  final c = ref.watch(supabaseClientProvider);
+  final emp = await c
       .from('employees')
       .select('id')
-      .eq('user_id', client.auth.currentUser!.id)
+      .eq('user_id', c.auth.currentUser!.id)
       .single();
-  return List<Map<String, dynamic>>.from(await client
+  return List<Map<String, dynamic>>.from(await c
       .from('leave_requests')
       .select('*, leave_types(name, is_paid)')
-      .eq('employee_id', emp['id'])
+      .eq('employee_id', emp['id'] as String)
       .order('applied_at', ascending: false) as List);
 });
 
 final pendingLeaveApprovalsProvider =
     FutureProvider<List<Map<String, dynamic>>>((ref) async {
-  final client = ref.watch(supabaseClientProvider);
-  return List<Map<String, dynamic>>.from(await client
+  final c = ref.watch(supabaseClientProvider);
+  return List<Map<String, dynamic>>.from(await c
       .from('leave_requests')
-      .select('*, leave_types(name), employees!employee_id(first_name, last_name, designation)')
+      .select(
+          '*, leave_types(name), employees!employee_id(first_name, last_name, designation)')
       .eq('status', 'pending')
       .order('applied_at') as List);
 });
 
 final myLeaveBalancesProvider =
     FutureProvider<List<Map<String, dynamic>>>((ref) async {
-  final client = ref.watch(supabaseClientProvider);
-  final emp = await client
+  final c = ref.watch(supabaseClientProvider);
+  final emp = await c
       .from('employees')
       .select('id')
-      .eq('user_id', client.auth.currentUser!.id)
+      .eq('user_id', c.auth.currentUser!.id)
       .single();
-  return List<Map<String, dynamic>>.from(await client
+  return List<Map<String, dynamic>>.from(await c
       .from('leave_balances')
       .select('*, leave_types(name, max_days_per_year)')
-      .eq('employee_id', emp['id'])
+      .eq('employee_id', emp['id'] as String)
       .eq('year', DateTime.now().year) as List);
 });
 
 final leaveRequestNotifierProvider =
     StateNotifierProvider<LeaveRequestNotifier, AsyncValue<void>>(
-  (_) => LeaveRequestNotifier(),
-);
+        (_) => LeaveRequestNotifier());
 
 class LeaveRequestNotifier extends StateNotifier<AsyncValue<void>> {
   LeaveRequestNotifier() : super(const AsyncValue.data(null));
@@ -552,13 +338,12 @@ class LeaveRequestNotifier extends StateNotifier<AsyncValue<void>> {
           .select('id')
           .eq('user_id', _c.auth.currentUser!.id)
           .single();
-      final totalDays = toDate.difference(fromDate).inDays + 1;
       await _c.from('leave_requests').insert({
         'employee_id': emp['id'],
         'leave_type_id': leaveTypeId,
         'from_date': fromDate.toIso8601String().substring(0, 10),
         'to_date': toDate.toIso8601String().substring(0, 10),
-        'total_days': totalDays,
+        'total_days': toDate.difference(fromDate).inDays + 1,
         'reason': reason,
         'status': 'pending',
       });
@@ -594,47 +379,36 @@ class LeaveRequestNotifier extends StateNotifier<AsyncValue<void>> {
 
 final payrollRunsProvider =
     FutureProvider<List<Map<String, dynamic>>>((ref) async {
-  final client = ref.watch(supabaseClientProvider);
-  return List<Map<String, dynamic>>.from(await client
+  final c = ref.watch(supabaseClientProvider);
+  return List<Map<String, dynamic>>.from(await c
       .from('payroll_runs')
       .select()
       .order('year', ascending: false)
       .order('month', ascending: false) as List);
 });
 
-final payslipsForRunProvider =
-    FutureProvider.family<List<Map<String, dynamic>>, String>((ref, runId) async {
-  final client = ref.watch(supabaseClientProvider);
-  return List<Map<String, dynamic>>.from(await client
-      .from('payslips')
-      .select('*, employees(first_name, last_name, emp_code, designation)')
-      .eq('payroll_run_id', runId)
-      .order('net_salary', ascending: false) as List);
-});
-
 final myLatestPayslipProvider =
     FutureProvider<Map<String, dynamic>?>((ref) async {
-  final client = ref.watch(supabaseClientProvider);
-  final emp = await client
+  final c = ref.watch(supabaseClientProvider);
+  final emp = await c
       .from('employees')
       .select('id')
-      .eq('user_id', client.auth.currentUser!.id)
+      .eq('user_id', c.auth.currentUser!.id)
       .maybeSingle();
   if (emp == null) return null;
-  final data = await client
+  final r = await c
       .from('payslips')
       .select('*, payroll_runs(month, year)')
-      .eq('employee_id', emp['id'])
+      .eq('employee_id', emp['id'] as String)
       .order('created_at', ascending: false)
       .limit(1)
       .maybeSingle();
-  return data != null ? Map<String, dynamic>.from(data) : null;
+  return r != null ? Map<String, dynamic>.from(r) : null;
 });
 
 final payrollRunNotifierProvider =
     StateNotifierProvider<PayrollRunNotifier, AsyncValue<String?>>(
-  (_) => PayrollRunNotifier(),
-);
+        (_) => PayrollRunNotifier());
 
 class PayrollRunNotifier extends StateNotifier<AsyncValue<String?>> {
   PayrollRunNotifier() : super(const AsyncValue.data(null));
@@ -648,46 +422,34 @@ class PayrollRunNotifier extends StateNotifier<AsyncValue<String?>> {
           .select('id')
           .eq('user_id', _c.auth.currentUser!.id)
           .single();
-
-      final employees = await _c
-          .from('employees')
-          .select('*, salary_structures(*)')
-          .eq('status', 'active');
-      final empList = List<Map<String, dynamic>>.from(employees as List);
-
-      final startDate =
-          '$year-${month.toString().padLeft(2, '0')}-01';
+      final emps = List<Map<String, dynamic>>.from(
+          await _c.from('employees').select('*, salary_structures(*)').eq(
+              'status', 'active') as List);
+      final mm = month.toString().padLeft(2, '0');
       final lastDay = DateTime(year, month + 1, 0).day;
-      final endDate =
-          '$year-${month.toString().padLeft(2, '0')}-${lastDay.toString().padLeft(2, '0')}';
-
-      final attendance = await _c
+      final atts = List<Map<String, dynamic>>.from(await _c
           .from('attendance')
           .select('employee_id, status')
-          .gte('date', startDate)
-          .lte('date', endDate);
-      final attList = List<Map<String, dynamic>>.from(attendance as List);
-
+          .gte('date', '$year-$mm-01')
+          .lte('date',
+              '$year-$mm-${lastDay.toString().padLeft(2, '0')}') as List);
       int workDays = 0;
       for (int d = 1; d <= lastDay; d++) {
         final wd = DateTime(year, month, d).weekday;
         if (wd != 6 && wd != 7) workDays++;
       }
-
       final run = await _c.from('payroll_runs').insert({
         'month': month,
         'year': year,
         'status': 'processing',
         'processed_by': processor['id'],
         'processed_at': DateTime.now().toIso8601String(),
-        'employee_count': empList.length,
+        'employee_count': emps.length,
       }).select().single();
-
       final runId = run['id'] as String;
       double totalGross = 0, totalDed = 0, totalNet = 0;
       final payslips = <Map<String, dynamic>>[];
-
-      for (final emp in empList) {
+      for (final emp in emps) {
         final structs = emp['salary_structures'] as List? ?? [];
         if (structs.isEmpty) continue;
         final sal = Map<String, dynamic>.from(structs.first as Map);
@@ -702,7 +464,7 @@ class PayrollRunNotifier extends StateNotifier<AsyncValue<String?>> {
         final pf = (sal['provident_fund'] as num? ?? 0).toDouble();
         final gross = basic + house + transport + medical + meal + other;
         final perDay = workDays > 0 ? gross / workDays : 0.0;
-        final present = attList
+        final present = atts
             .where((a) =>
                 a['employee_id'] == emp['id'] &&
                 (a['status'] == 'present' ||
@@ -710,8 +472,7 @@ class PayrollRunNotifier extends StateNotifier<AsyncValue<String?>> {
                     a['status'] == 'half_day'))
             .length;
         final absent = workDays - present;
-        final absentDed = absent * perDay;
-        final ded = tax + ins + pf + absentDed;
+        final ded = tax + ins + pf + (absent * perDay);
         final net = (gross - ded).clamp(0.0, double.infinity);
         totalGross += gross;
         totalDed += ded;
@@ -728,7 +489,7 @@ class PayrollRunNotifier extends StateNotifier<AsyncValue<String?>> {
           'tax_deduction': tax,
           'insurance_deduction': ins,
           'provident_fund': pf,
-          'absent_deduction': absentDed,
+          'absent_deduction': absent * perDay,
           'total_deductions': ded,
           'net_salary': net,
           'working_days': workDays,
@@ -737,10 +498,7 @@ class PayrollRunNotifier extends StateNotifier<AsyncValue<String?>> {
           'status': 'generated',
         });
       }
-
-      if (payslips.isNotEmpty) {
-        await _c.from('payslips').insert(payslips);
-      }
+      if (payslips.isNotEmpty) await _c.from('payslips').insert(payslips);
       await _c.from('payroll_runs').update({
         'status': 'approved',
         'total_gross': totalGross,
@@ -748,7 +506,6 @@ class PayrollRunNotifier extends StateNotifier<AsyncValue<String?>> {
         'total_net': totalNet,
         'employee_count': payslips.length,
       }).eq('id', runId);
-
       state = AsyncValue.data(runId);
       return true;
     } catch (e, st) {
@@ -764,56 +521,49 @@ class PayrollRunNotifier extends StateNotifier<AsyncValue<String?>> {
 
 final dashboardStatsProvider =
     FutureProvider<Map<String, dynamic>>((ref) async {
-  final client = ref.watch(supabaseClientProvider);
+  final c = ref.watch(supabaseClientProvider);
   final today = DateTime.now().toIso8601String().substring(0, 10);
-  final month = DateTime.now().month;
-  final year = DateTime.now().year;
-  final emps = await client
-      .from('employees')
-      .select('status');
-  final empList = List<Map<String, dynamic>>.from(emps as List);
-  final presentToday = await client
+  final emps = List<Map<String, dynamic>>.from(
+      await c.from('employees').select('status') as List);
+  final present = List.from(await c
       .from('attendance')
       .select('id')
       .eq('date', today)
-      .eq('status', 'present');
-  final pendingLeaves = await client
+      .eq('status', 'present') as List);
+  final pending = List.from(await c
       .from('leave_requests')
       .select('id')
-      .eq('status', 'pending');
-  final payroll = await client
+      .eq('status', 'pending') as List);
+  final payroll = await c
       .from('payroll_runs')
       .select('total_net')
-      .eq('month', month)
-      .eq('year', year)
+      .eq('month', DateTime.now().month)
+      .eq('year', DateTime.now().year)
       .maybeSingle();
   return {
-    'total_employees': empList.where((e) => e['status'] == 'active').length,
-    'present_today': (presentToday as List).length,
-    'pending_leaves': (pendingLeaves as List).length,
+    'total_employees': emps.where((e) => e['status'] == 'active').length,
+    'present_today': present.length,
+    'pending_leaves': pending.length,
     'payroll_this_month': (payroll?['total_net'] as num? ?? 0).toDouble(),
   };
 });
 
 final attendanceTrendProvider =
     FutureProvider<List<Map<String, dynamic>>>((ref) async {
-  final client = ref.watch(supabaseClientProvider);
+  final c = ref.watch(supabaseClientProvider);
   final today = DateTime.now();
-  final days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   final trend = <Map<String, dynamic>>[];
   for (int i = 6; i >= 0; i--) {
     final day = today.subtract(Duration(days: i));
     final dateStr = day.toIso8601String().substring(0, 10);
-    final all = await client
-        .from('attendance')
-        .select('status')
-        .eq('date', dateStr);
-    final list = List<Map<String, dynamic>>.from(all as List);
+    final all = List<Map<String, dynamic>>.from(
+        await c.from('attendance').select('status').eq('date', dateStr) as List);
     trend.add({
       'date': dateStr,
       'day': days[day.weekday - 1],
-      'present': list.where((a) => a['status'] == 'present').length,
-      'absent': list.where((a) => a['status'] == 'absent').length,
+      'present': all.where((a) => a['status'] == 'present').length,
+      'absent': all.where((a) => a['status'] == 'absent').length,
     });
   }
   return trend;
@@ -821,96 +571,97 @@ final attendanceTrendProvider =
 
 final payrollTrendProvider =
     FutureProvider<List<Map<String, dynamic>>>((ref) async {
-  final client = ref.watch(supabaseClientProvider);
-  final data = await client
+  final c = ref.watch(supabaseClientProvider);
+  final r = await c
       .from('payroll_runs')
       .select('month, year, total_net, employee_count')
       .eq('status', 'approved')
       .order('year', ascending: false)
       .order('month', ascending: false)
       .limit(6);
-  return List<Map<String, dynamic>>.from((data as List).reversed.toList());
+  return List<Map<String, dynamic>>.from((r as List).reversed.toList());
 });
 
 final departmentDistributionProvider =
     FutureProvider<List<Map<String, dynamic>>>((ref) async {
-  final client = ref.watch(supabaseClientProvider);
-  final emps = await client
-      .from('employees')
-      .select('department_id, departments(name)')
-      .eq('status', 'active');
-  final empList = List<Map<String, dynamic>>.from(emps as List);
+  final c = ref.watch(supabaseClientProvider);
+  final emps = List<Map<String, dynamic>>.from(
+      await c
+          .from('employees')
+          .select('department_id, departments(name)')
+          .eq('status', 'active') as List);
   final counts = <String, int>{};
-  for (final e in empList) {
+  for (final e in emps) {
     final name = (e['departments'] as Map?)?['name'] as String? ?? 'Unknown';
     counts[name] = (counts[name] ?? 0) + 1;
   }
-  final result = counts.entries
+  return (counts.entries
       .map((e) => {'department': e.key, 'count': e.value})
       .toList()
-    ..sort((a, b) => (b['count'] as int).compareTo(a['count'] as int));
-  return result;
+    ..sort((a, b) => (b['count'] as int).compareTo(a['count'] as int)));
 });
 
 // ════════════════════════════════════════════════════════════
 // CRM PROVIDERS
 // ════════════════════════════════════════════════════════════
 
-final crmLeadsProvider = FutureProvider.family<List<Map<String, dynamic>>,
-    ({String? stage, String? search})>((ref, p) async {
-  final client = ref.watch(supabaseClientProvider);
-  var query = client
+final crmLeadsProvider = FutureProvider.family<
+    List<Map<String, dynamic>>, CrmLeadFilter>((ref, f) async {
+  final c = ref.watch(supabaseClientProvider);
+  // Apply filters BEFORE order
+  var q = c
       .from('crm_leads')
-      .select('*, employees!assigned_to(first_name, last_name)')
-      .order('created_at', ascending: false);
-  if (p.stage != null && p.stage!.isNotEmpty) {
-    query = query.eq('stage', p.stage!) as dynamic;
+      .select('*, employees!assigned_to(first_name, last_name)');
+  if (f.stage != null && f.stage!.isNotEmpty) q = q.eq('stage', f.stage!);
+  if (f.search != null && f.search!.isNotEmpty) {
+    q = q.or(
+        'company_name.ilike.%${f.search}%,contact_name.ilike.%${f.search}%');
   }
-  if (p.search != null && p.search!.isNotEmpty) {
-    query = query.or(
-        'company_name.ilike.%${p.search}%,contact_name.ilike.%${p.search}%') as dynamic;
-  }
-  return List<Map<String, dynamic>>.from(await query as List);
+  final r = await q.order('created_at', ascending: false);
+  return List<Map<String, dynamic>>.from(r as List);
 });
 
 final crmClientsProvider =
     FutureProvider<List<Map<String, dynamic>>>((ref) async {
-  final client = ref.watch(supabaseClientProvider);
+  final c = ref.watch(supabaseClientProvider);
   return List<Map<String, dynamic>>.from(
-      await client.from('crm_clients').select().order('company_name') as List);
+      await c.from('crm_clients').select().order('company_name') as List);
 });
 
 final crmStatsProvider =
     FutureProvider<Map<String, dynamic>>((ref) async {
-  final client = ref.watch(supabaseClientProvider);
-  final leads = await client.from('crm_leads').select('stage, deal_value');
-  final list = List<Map<String, dynamic>>.from(leads as List);
+  final c = ref.watch(supabaseClientProvider);
+  final leads = List<Map<String, dynamic>>.from(
+      await c.from('crm_leads').select('stage, deal_value') as List);
   double pipeline = 0;
   int won = 0, lost = 0, inProgress = 0;
-  for (final l in list) {
+  for (final l in leads) {
     pipeline += (l['deal_value'] as num? ?? 0).toDouble();
-    if (l['stage'] == 'won') won++;
-    else if (l['stage'] == 'lost') lost++;
-    else inProgress++;
+    if (l['stage'] == 'won') {
+      won++;
+    } else if (l['stage'] == 'lost') {
+      lost++;
+    } else {
+      inProgress++;
+    }
   }
-  final clients = await client.from('crm_clients').select('id');
+  final clients = List.from(await c.from('crm_clients').select('id') as List);
   return {
-    'total_leads': list.length,
+    'total_leads': leads.length,
     'pipeline_value': pipeline,
     'won': won,
     'lost': lost,
     'in_progress': inProgress,
-    'total_clients': (clients as List).length,
-    'conversion_rate': list.isNotEmpty
-        ? ((won / list.length) * 100).toStringAsFixed(1)
+    'total_clients': clients.length,
+    'conversion_rate': leads.isNotEmpty
+        ? ((won / leads.length) * 100).toStringAsFixed(1)
         : '0',
   };
 });
 
 final crmLeadNotifierProvider =
     StateNotifierProvider<CrmLeadNotifier, AsyncValue<void>>(
-  (_) => CrmLeadNotifier(),
-);
+        (_) => CrmLeadNotifier());
 
 class CrmLeadNotifier extends StateNotifier<AsyncValue<void>> {
   CrmLeadNotifier() : super(const AsyncValue.data(null));

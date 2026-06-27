@@ -370,8 +370,8 @@ class PayslipDetailScreen extends ConsumerWidget {
                         )),
                     pw.SizedBox(height: 4),
                     pw.Text(monthName,
-                        style: const pw.TextStyle(
-                            color: PdfColors.white70, fontSize: 14)),
+                        style: pw.TextStyle(
+                            color: PdfColors.grey, fontSize: 14)),
                   ],
                 ),
               ),
@@ -490,7 +490,7 @@ class PayslipDetailScreen extends ConsumerWidget {
               pw.Center(
                 child: pw.Text(
                   'This is a computer-generated payslip and does not require a signature.',
-                  style: const pw.TextStyle(
+                  style: pw.TextStyle(
                       color: PdfColors.grey, fontSize: 9),
                 ),
               ),
@@ -504,7 +504,7 @@ class PayslipDetailScreen extends ConsumerWidget {
   }
 
   pw.TextStyle _pdfLabel() =>
-      const pw.TextStyle(color: PdfColors.grey, fontSize: 10);
+      pw.TextStyle(color: PdfColors.grey, fontSize: 10);
 
   pw.Widget _pdfRow(String label, String value, {bool bold = false}) {
     return pw.Padding(
@@ -515,11 +515,11 @@ class PayslipDetailScreen extends ConsumerWidget {
           pw.Text(label,
               style: bold
                   ? pw.TextStyle(fontWeight: pw.FontWeight.bold)
-                  : const pw.TextStyle()),
+                  : pw.TextStyle()),
           pw.Text(value,
               style: bold
                   ? pw.TextStyle(fontWeight: pw.FontWeight.bold)
-                  : const pw.TextStyle()),
+                  : pw.TextStyle()),
         ],
       ),
     );

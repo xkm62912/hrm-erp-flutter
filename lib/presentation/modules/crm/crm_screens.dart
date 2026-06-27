@@ -216,7 +216,7 @@ class _CrmKpiCard extends StatelessWidget {
 class _PipelineBoard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final leadsAsync = ref.watch(crmLeadsProvider());
+    final leadsAsync = ref.watch(crmLeadsProvider(const CrmLeadFilter()));
 
     return leadsAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -421,10 +421,8 @@ class _LeadListScreenState extends ConsumerState<LeadListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final leadsAsync = ref.watch(crmLeadsProvider(
-      stage: _stageFilter,
-      search: _search,
-    ));
+    final leadsAsync = ref.watch(crmLeadsProvider(CrmLeadFilter(stage: _stageFilter, search: _search,
+    )));
 
     return Scaffold(
       appBar: AppBar(title: const Text('Leads')),

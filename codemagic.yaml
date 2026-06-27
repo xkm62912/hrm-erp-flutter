@@ -25,28 +25,38 @@ workflows:
           rm -rf lib
           cp -r /tmp/src_lib lib
           cp /tmp/src_pubspec.yaml pubspec.yaml
-          echo "Bootstrap done"
-          ls android/app/src/main/
+          echo "Files restored:"
+          ls lib/
 
-      - name: Set minSdk 21
+      - name: Configure Android build
         script: |
+          # Set minSdk and compileSdk explicitly — fixes app_links Gradle error
           for f in android/app/build.gradle android/app/build.gradle.kts; do
             if [ -f "$f" ]; then
+              echo "--- Before: $f ---"
+              cat "$f"
               sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' "$f"
               sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' "$f"
-              echo "Updated $f"
-              grep -i "minsdk" "$f" || true
+              sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 34/g' "$f"
+              sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 34/g' "$f"
+              sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 34/g' "$f"
+              sed -i 's/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 34/g' "$f"
+              echo "--- After: $f ---"
+              cat "$f"
             fi
           done
 
-      - name: Write AndroidManifest with INTERNET permission
+          # Write local.properties with explicit flutter.sdk path
+          FLUTTER_ROOT=$(flutter --version --machine 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('flutterRoot',''))" 2>/dev/null || dirname $(dirname $(which flutter)))
+          echo "Flutter root: $FLUTTER_ROOT"
+          echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
+          echo "sdk.dir=$ANDROID_HOME" >> android/local.properties
+          echo "--- local.properties ---"
+          cat android/local.properties
+
+      - name: Write AndroidManifest
         script: |
-          MANIFEST="android/app/src/main/AndroidManifest.xml"
-          echo "Current manifest:"
-          cat "$MANIFEST"
-          echo "---"
-          # Write a complete manifest directly — no sed needed
-          cat > "$MANIFEST" << 'MANIFEST_EOF'
+          cat > android/app/src/main/AndroidManifest.xml << 'MANIFEST'
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET"/>
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
@@ -77,9 +87,7 @@ workflows:
                       android:value="2"/>
               </application>
           </manifest>
-          MANIFEST_EOF
-          echo "New manifest written:"
-          cat "$MANIFEST"
+          MANIFEST
 
       - name: Flutter pub get
         script: flutter pub get

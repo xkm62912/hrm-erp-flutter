@@ -1,4 +1,3 @@
-// lib/main.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -10,23 +9,14 @@ Future<void> main() async {
 
   await Supabase.initialize(
     url: 'https://iuuzzlcyaduhmhkfecgp.supabase.co',
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml1dXp6bGN5YWR1aG1oa2ZlY2dwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIzNjMxNjYsImV4cCI6MjA5NzkzOTE2Nn0.vKCOwTXe5m36Zs6hCVbDQeqecYvml8hiaAM0irudgtA',
+    // Using publishableKey instead of deprecated anonKey
+    publishableKey: 'sb_publishable_y75qrANkJn-2NmfU4LLfig_1CPC-S6I',
     authOptions: const FlutterAuthClientOptions(
       authFlowType: AuthFlowType.pkce,
     ),
-    realtimeClientOptions: const RealtimeClientOptions(
-      logLevel: RealtimeLogLevel.info,
-    ),
-    storageOptions: const StorageClientOptions(
-      retryAttempts: 3,
-    ),
   );
 
-  runApp(
-    const ProviderScope(
-      child: HRMApp(),
-    ),
-  );
+  runApp(const ProviderScope(child: HRMApp()));
 }
 
 class HRMApp extends ConsumerWidget {

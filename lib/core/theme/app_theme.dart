@@ -8,8 +8,7 @@ class AppTheme {
           seedColor: AppColors.primary,
           primary: AppColors.primary,
           secondary: AppColors.accent,
-          background: AppColors.background,
-          surface: AppColors.surface,
+          surface: AppColors.background,  // was: background (deprecated)
           error: AppColors.error,
         ),
         scaffoldBackgroundColor: AppColors.background,
@@ -22,7 +21,6 @@ class AppTheme {
             color: Colors.white,
             fontSize: 18,
             fontWeight: FontWeight.w600,
-            letterSpacing: 0.2,
           ),
         ),
         cardTheme: CardTheme(
@@ -39,14 +37,17 @@ class AppTheme {
             foregroundColor: Colors.white,
             elevation: 0,
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            textStyle:
+                const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
           ),
         ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: AppColors.surface,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: const BorderSide(color: AppColors.border),
@@ -65,16 +66,6 @@ class AppTheme {
           ),
           labelStyle: const TextStyle(color: AppColors.textSecondary),
           hintStyle: const TextStyle(color: AppColors.textHint),
-        ),
-        chipTheme: ChipThemeData(
-          backgroundColor: AppColors.background,
-          selectedColor: AppColors.primary.withOpacity(0.15),
-          labelStyle: const TextStyle(fontSize: 12),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-            side: const BorderSide(color: AppColors.border),
-          ),
         ),
         fontFamily: 'Inter',
       );

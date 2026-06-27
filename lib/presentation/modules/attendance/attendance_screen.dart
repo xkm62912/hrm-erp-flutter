@@ -11,8 +11,7 @@ class AttendanceScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final today = DateTime.now();
     final todayAsync = ref.watch(todayAttendanceProvider);
-    final monthlyAsync = ref.watch(monthlyAttendanceProvider(
-        month: today.month, year: today.year));
+    final monthlyAsync = ref.watch(monthlyAttendanceProvider(AttendanceFilter(month: today.month, year: today.year)));
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -20,7 +19,7 @@ class AttendanceScreen extends ConsumerWidget {
       body: RefreshIndicator(
         onRefresh: () async {
           ref.invalidate(todayAttendanceProvider);
-          ref.invalidate(monthlyAttendanceProvider(month: today.month, year: today.year));
+          ref.invalidate(monthlyAttendanceProvider(AttendanceFilter(month: today.month, year: today.year)));
         },
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),

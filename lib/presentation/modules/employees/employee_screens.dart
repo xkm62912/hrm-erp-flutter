@@ -84,7 +84,7 @@ class _EmployeeListScreenState extends ConsumerState<EmployeeListScreen>
             child: TabBarView(
               controller: _tabController,
               children: _tabs.map((t) {
-                final empAsync = ref.watch(employeesProvider(search: _search, status: t.$2));
+                final empAsync = ref.watch(employeesProvider(EmployeeFilter(search: _search, status: t.$2)));
                 return empAsync.when(
                   loading: () => const Center(child: CircularProgressIndicator()),
                   error: (e, _) => Center(child: Text('Error: $e')),
@@ -99,7 +99,7 @@ class _EmployeeListScreenState extends ConsumerState<EmployeeListScreen>
                           ]),
                         )
                       : RefreshIndicator(
-                          onRefresh: () => ref.refresh(employeesProvider(search: _search).future),
+                          onRefresh: () => ref.refresh(employeesProvider(EmployeeFilter(search: _search)).future),
                           child: ListView.separated(
                             padding: const EdgeInsets.fromLTRB(12, 8, 12, 100),
                             itemCount: emps.length,
