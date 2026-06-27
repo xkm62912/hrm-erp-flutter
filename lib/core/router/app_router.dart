@@ -138,7 +138,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             Text('Page not found: ${state.uri}'),
             const SizedBox(height: 16),
             ElevatedButton(
-              onPressed: () => context.go('/dashboard'),
+              onPressed: () => GoRouter.of(context).go('/dashboard'),
               child: const Text('Go Home'),
             ),
           ],

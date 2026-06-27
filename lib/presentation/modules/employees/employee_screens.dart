@@ -361,7 +361,7 @@ class _EmployeeFormScreenState extends ConsumerState<EmployeeFormScreen> {
           'effective_from': _joinDate.toIso8601String().substring(0, 10), 'is_active': true,
         }, onConflict: 'employee_id');
       }
-      ref.invalidate(employeesProvider);
+      ref.invalidate(employeesProvider(const EmployeeFilter()));
       if (mounted) {
         context.pop();
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Employee ${_isEdit ? 'updated' : 'created'} ✓'), backgroundColor: AppColors.success, behavior: SnackBarBehavior.floating));
@@ -385,15 +385,15 @@ class _EmployeeFormScreenState extends ConsumerState<EmployeeFormScreen> {
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const _FormSection('Personal Information'),
             Row(children: [
-              Expanded(child: _FF('First Name *', _firstNameCtrl, Icons.person_rounded, validator: (v) => v?.isEmpty == true ? 'Required' : null)),
+              Expanded(child: _formField('First Name *', _firstNameCtrl, Icons.person_rounded, validator: (v) => v?.isEmpty == true ? 'Required' : null)),
               const SizedBox(width: 12),
-              Expanded(child: _FF('Last Name *', _lastNameCtrl, Icons.person_rounded, validator: (v) => v?.isEmpty == true ? 'Required' : null)),
+              Expanded(child: _formField('Last Name *', _lastNameCtrl, Icons.person_rounded, validator: (v) => v?.isEmpty == true ? 'Required' : null)),
             ]),
-            _FF('Email *', _emailCtrl, Icons.email_rounded, type: TextInputType.emailAddress, validator: (v) => v == null || !v.contains('@') ? 'Valid email required' : null),
-            _FF('Phone', _phoneCtrl, Icons.phone_rounded, type: TextInputType.phone),
+            _formField('Email *', _emailCtrl, Icons.email_rounded, type: TextInputType.emailAddress, validator: (v) => v == null || !v.contains('@') ? 'Valid email required' : null),
+            _formField('Phone', _phoneCtrl, Icons.phone_rounded, type: TextInputType.phone),
             const SizedBox(height: 8),
             const _FormSection('Employment'),
-            _FF('Designation *', _designationCtrl, Icons.work_rounded, validator: (v) => v?.isEmpty == true ? 'Required' : null),
+            _formField('Designation *', _designationCtrl, Icons.work_rounded, validator: (v) => v?.isEmpty == true ? 'Required' : null),
             deptsAsync.when(
               loading: () => const LinearProgressIndicator(),
               error: (_, __) => const SizedBox.shrink(),
@@ -441,7 +441,7 @@ class _EmployeeFormScreenState extends ConsumerState<EmployeeFormScreen> {
             ),
             const SizedBox(height: 4),
             const _FormSection('Salary'),
-            _FF('Basic Salary (\$)', _basicSalaryCtrl, Icons.payments_rounded, type: TextInputType.number),
+            _formField('Basic Salary (\$)', _basicSalaryCtrl, Icons.payments_rounded, type: TextInputType.number),
             const SizedBox(height: 24),
             SizedBox(
               width: double.infinity, height: 52,
@@ -459,7 +459,7 @@ class _EmployeeFormScreenState extends ConsumerState<EmployeeFormScreen> {
     );
   }
 
-  Widget _FF(String label, TextEditingController ctrl, IconData icon, {TextInputType type = TextInputType.text, String? Function(String?)? validator}) =>
+  Widget _formField(String label, TextEditingController ctrl, IconData icon, {TextInputType type = TextInputType.text, String? Function(String?)? validator}) =>
       Padding(
         padding: const EdgeInsets.only(bottom: 12),
         child: TextFormField(controller: ctrl, keyboardType: type, validator: validator, decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon))),

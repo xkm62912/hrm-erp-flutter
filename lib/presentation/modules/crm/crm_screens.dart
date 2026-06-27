@@ -421,7 +421,7 @@ class _LeadListScreenState extends ConsumerState<LeadListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final leadsAsync = ref.watch(crmLeadsProvider(CrmLeadFilter(stage: _stageFilter, search: _search,
+    final leadsAsync = ref.watch(crmLeadsProvider(CrmLeadFilter(stage: _stageFilter, search: _search)));
     )));
 
     return Scaffold(
