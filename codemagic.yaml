@@ -25,20 +25,61 @@ workflows:
           rm -rf lib
           cp -r /tmp/src_lib lib
           cp /tmp/src_pubspec.yaml pubspec.yaml
+          echo "Bootstrap done"
+          ls android/app/src/main/
 
       - name: Set minSdk 21
         script: |
           for f in android/app/build.gradle android/app/build.gradle.kts; do
-            [ -f "$f" ] && sed -i \
-              -e 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' \
-              -e 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' "$f"
+            if [ -f "$f" ]; then
+              sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' "$f"
+              sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' "$f"
+              echo "Updated $f"
+              grep -i "minsdk" "$f" || true
+            fi
           done
 
-      - name: Add INTERNET permission
+      - name: Write AndroidManifest with INTERNET permission
         script: |
-          M=android/app/src/main/AndroidManifest.xml
-          grep -q "INTERNET" "$M" || sed -i \
-            's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <application|' "$M"
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          echo "Current manifest:"
+          cat "$MANIFEST"
+          echo "---"
+          # Write a complete manifest directly — no sed needed
+          cat > "$MANIFEST" << 'MANIFEST_EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET"/>
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+              <application
+                  android:label="HRM ERP"
+                  android:name="${applicationName}"
+                  android:icon="@mipmap/ic_launcher"
+                  android:usesCleartextTraffic="true">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:launchMode="singleTop"
+                      android:taskAffinity=""
+                      android:theme="@style/LaunchTheme"
+                      android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+                      android:hardwareAccelerated="true"
+                      android:windowSoftInputMode="adjustResize">
+                      <meta-data
+                          android:name="io.flutter.embedding.android.NormalTheme"
+                          android:resource="@style/NormalTheme"/>
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+                  <meta-data
+                      android:name="flutterEmbedding"
+                      android:value="2"/>
+              </application>
+          </manifest>
+          MANIFEST_EOF
+          echo "New manifest written:"
+          cat "$MANIFEST"
 
       - name: Flutter pub get
         script: flutter pub get
