@@ -25,34 +25,23 @@ workflows:
           rm -rf lib
           cp -r /tmp/src_lib lib
           cp /tmp/src_pubspec.yaml pubspec.yaml
-          echo "Files restored:"
-          ls lib/
+          echo "Restored files:"
+          find lib -name "*.dart"
 
-      - name: Configure Android build
+      - name: Configure Gradle SDK versions
         script: |
-          # Set minSdk and compileSdk explicitly — fixes app_links Gradle error
           for f in android/app/build.gradle android/app/build.gradle.kts; do
             if [ -f "$f" ]; then
-              echo "--- Before: $f ---"
-              cat "$f"
               sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' "$f"
               sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' "$f"
               sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 34/g' "$f"
               sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 34/g' "$f"
               sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 34/g' "$f"
               sed -i 's/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 34/g' "$f"
-              echo "--- After: $f ---"
+              echo "--- $f ---"
               cat "$f"
             fi
           done
-
-          # Write local.properties with explicit flutter.sdk path
-          FLUTTER_ROOT=$(flutter --version --machine 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('flutterRoot',''))" 2>/dev/null || dirname $(dirname $(which flutter)))
-          echo "Flutter root: $FLUTTER_ROOT"
-          echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
-          echo "sdk.dir=$ANDROID_HOME" >> android/local.properties
-          echo "--- local.properties ---"
-          cat android/local.properties
 
       - name: Write AndroidManifest
         script: |
@@ -92,11 +81,11 @@ workflows:
       - name: Flutter pub get
         script: flutter pub get
 
-      - name: Flutter analyze
+      - name: Flutter analyze (informational)
         script: flutter analyze --no-fatal-infos --no-fatal-warnings
         ignore_failure: true
 
-      - name: Build APK
+      - name: Build Release APK
         script: |
           flutter build apk --release \
             "--dart-define=SUPABASE_URL=$SUPABASE_URL" \
