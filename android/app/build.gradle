@@ -23,7 +23,7 @@ apply from: "$flutterRoot/packages/flutter_tools/gradle/flutter.gradle"
 
 android {
     namespace "com.hrmerp.hrm_erp"
-    compileSdk 34
+    compileSdk rootProject.ext.compileSdkVersion
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
@@ -40,8 +40,8 @@ android {
 
     defaultConfig {
         applicationId "com.hrmerp.hrm_erp"
-        minSdk 21
-        targetSdk 34
+        minSdk rootProject.ext.minSdkVersion
+        targetSdk rootProject.ext.targetSdkVersion
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
     }
