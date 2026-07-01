@@ -120,7 +120,7 @@ class DashboardScreen extends ConsumerWidget {
           ),
         ]),
         const Spacer(),
-        Text(value, style: TextStyle(
+        Text(value, style: const TextStyle(
             fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
         Text(label, style: const TextStyle(
             fontSize: 10, color: AppColors.textSecondary)),
